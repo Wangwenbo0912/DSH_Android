@@ -27,6 +27,14 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+
+    testOptions {
+        unitTests {
+            // android.util.Log etc. return defaults instead of throwing
+            // "Method not mocked" in local JVM unit tests.
+            isReturnDefaultValues = true
+        }
+    }
 }
 
 dependencies {
