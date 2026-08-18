@@ -115,11 +115,11 @@ jobs:
         run: |
           if [ -f keystore-release.jks ]; then
             cat > keystore.properties <<EOF
-            storeFile=$(pwd)/keystore-release.jks
-            storePassword=${ANDROID_KEYSTORE_PASSWORD:-}
-            keyAlias=${ANDROID_KEY_ALIAS:-dshapp}
-            keyPassword=${ANDROID_KEY_PASSWORD:-}
-            EOF
+storeFile=$(pwd)/keystore-release.jks
+storePassword=${ANDROID_KEYSTORE_PASSWORD:-}
+keyAlias=${ANDROID_KEY_ALIAS:-dshapp}
+keyPassword=${ANDROID_KEY_PASSWORD:-}
+EOF
             echo "keystore.properties written (keystore present)"
           fi
 
