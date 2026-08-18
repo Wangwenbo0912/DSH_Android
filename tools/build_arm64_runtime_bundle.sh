@@ -37,6 +37,9 @@ if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
     exit 1
 fi
 
+echo "==> Stage 0: prepare build dir (owned by current user so later stages can write)"
+mkdir -p "$BUILD_DIR"
+
 echo "==> Stage 1: debootstrap $SUITE $ARCH"
 sudo debootstrap --arch="$ARCH" --variant=minbase --foreign "$SUITE" "$ROOTFS_DIR" "$MIRROR"
 
