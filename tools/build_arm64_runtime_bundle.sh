@@ -133,4 +133,5 @@ sudo chroot "$ROOTFS_DIR" /usr/local/bin/node /opt/dshapp/patch_dsh_android.js
 printf 'nameserver 114.114.114.114\nnameserver 8.8.8.8\nnameserver 223.5.5.5\n' | sudo tee "$ROOTFS_DIR/etc/resolv.conf" >/dev/null
 
 echo "==> Stage 7: pack"
-"$ROOT_DIR/tools/pack_runtime.sh" "$ROOTFS_DIR" "$BUNDLE_OUT" "0.1.0" "$ARCH"
+sudo rm -rf "$ROOTFS_DIR/tmp/node-compile-cache" "$ROOTFS_DIR/tmp/npm-*"
+sudo tar -C "$ROOTFS_DIR" -czf "$BUNDLE_OUT" .
