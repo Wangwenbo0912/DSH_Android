@@ -30,7 +30,7 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: 'platforms;android-36,build-tools;36.0.0,platform-tools'
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
 
       - name: Grant execute permission to scripts
         run: chmod +x tools/*.sh runtime-bundle/scripts/*.sh runtime-bundle/build_rootfs.sh
@@ -69,7 +69,7 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: 'platforms;android-36,build-tools;36.0.0,platform-tools'
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
 
       - name: Run tests with coverage
         run: ./gradlew testDebugUnitTest jacocoTestReport --stacktrace
@@ -113,7 +113,7 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: 'platforms;android-36,build-tools;36.0.0,platform-tools'
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
 
       - name: Grant execute permission to scripts
         run: chmod +x tools/*.sh
