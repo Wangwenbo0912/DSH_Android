@@ -54,7 +54,13 @@ class HttpHealthChecker(
             connection.instanceFollowRedirects = false
             val code = connection.responseCode
             connection.disconnect()
-            code in 200..299
+            // The server answered -> the webserver is alive. Do NOT restrict to
+            // 2xx: DSH is an SPA, so a 302 (e.g. to /login) or a 404 on a local
+            // route still proves the HTTP server is up. Restricting to 200-299
+            // misclassified a live DSH as "not ready" and triggered endless
+            // auto-restarts. 1xx are informational (no final response yet) and
+            // must not count as ready; anything >= 200 indicates a real reply.
+            code in 200..599
         } catch (_: Exception) {
             false
         }

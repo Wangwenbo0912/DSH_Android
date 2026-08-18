@@ -65,6 +65,7 @@ fun SettingsScreen(
     val sandboxManager = (context.applicationContext as DshApp).container.sandboxManager
     var showDiagnostics by remember { mutableStateOf(false) }
     var showBatteryDialog by remember { mutableStateOf(false) }
+    var showModelConfig by remember { mutableStateOf(false) }
 
     val importUpdateLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -93,6 +94,15 @@ fun SettingsScreen(
         return
     }
 
+    if (showModelConfig) {
+        ModelConfigScreen(
+            sandboxReady = sandboxReady,
+            onBack = { showModelConfig = false },
+            modifier = modifier,
+        )
+        return
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -114,6 +124,13 @@ fun SettingsScreen(
             SettingsActionRow(
                 title = stringResource(R.string.home_stop),
                 onClick = { SandboxService.stop(context) },
+            )
+        }
+
+        SettingsSection(title = stringResource(R.string.settings_section_model_config)) {
+            SettingsActionRow(
+                title = stringResource(R.string.settings_model_config),
+                onClick = { showModelConfig = true },
             )
         }
 

@@ -2,6 +2,7 @@ package com.dshbox.app.di
 
 import android.content.Context
 import com.dshbox.app.bridge.BridgeRouter
+import com.dshbox.app.config.DshConfigWriter
 import com.dshbox.app.sandbox.SandboxConfig
 import com.dshbox.app.sandbox.SandboxManager
 
@@ -13,4 +14,5 @@ class AppContainer(
     val sandboxConfig: SandboxConfig,
     val sandboxManager: SandboxManager,
     val bridgeRouter: BridgeRouter,
+    val dshConfigWriter: DshConfigWriter,
 )

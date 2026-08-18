@@ -153,4 +153,42 @@
     <string name="files_rename_conflict">已存在同名文件，请换一个名称</string>
     <string name="files_delete_confirm_single">确定删除 %1$s？此操作不可撤销。</string>
     <string name="files_name_invalid">名称无效（不能为空或含 / 等特殊字符）</string>
+
+    <!-- SandboxService notification -->
+    <string name="notification_channel_name">DSH Sandbox</string>
+    <string name="notification_title_running">DSH 运行中</string>
+    <string name="notification_text_running">127.0.0.1:3080 · 正在提供本机访问</string>
+    <string name="notification_title_starting">Dsh</string>
+    <string name="notification_text_starting">正在启动 DSH…</string>
+    <string name="notification_text_recovering">DSH 恢复中…</string>
+    <string name="notification_text_error">DSH 异常，请重试</string>
+    <string name="notification_text_stopped">DSH 已停止</string>
+    <string name="notification_text_fallback">沙盒运行中 · %1$s</string>
+    <string name="notification_action_open">打开 DSH</string>
+    <string name="notification_action_restart">重启</string>
+    <string name="notification_action_stop">停止</string>
+
+    <!-- Model Config -->
+    <string name="settings_section_model_config">模型配置</string>
+    <string name="settings_model_config">LLM 模型设置</string>
+    <string name="model_config_title">模型配置</string>
+    <string name="model_config_provider">Provider</string>
+    <string name="model_config_model">模型</string>
+    <string name="model_config_api_key">API Key</string>
+    <string name="model_config_base_url">Base URL</string>
+    <string name="model_config_set_default">设为默认模型</string>
+    <string name="model_config_save_restart">保存并重启沙箱</string>
+    <string name="model_config_save_only">仅保存</string>
+    <string name="model_config_show_key">显示</string>
+    <string name="model_config_hide_key">隐藏</string>
+    <string name="model_config_status_title">当前配置状态</string>
+    <string name="model_config_not_configured">未配置</string>
+    <string name="model_config_key_set">是</string>
+    <string name="model_config_key_not_set">否</string>
+    <string name="model_config_save_success">配置已保存</string>
+    <string name="model_config_save_failed">配置保存失败: %1$s</string>
+    <string name="model_config_key_required">请输入 API Key</string>
+    <string name="model_config_status_provider">Provider</string>
+    <string name="model_config_status_model">Model</string>
+    <string name="model_config_status_key">Key 已设置</string>
 </resources>

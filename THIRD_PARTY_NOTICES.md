@@ -14,6 +14,8 @@
 | AndroidX / Jetpack | Android 兼容层 | Apache-2.0 | Gradle 依赖 |
 | Jetpack Compose / Material3 / material-icons | UI 框架与图标 | Apache-2.0 | Gradle 依赖 |
 | Kotlin stdlib / Coroutines | 语言运行时与异步 | Apache-2.0 | Gradle 依赖 |
+| Apache Commons Compress（`commons-compress`） | tar.gz 解包（Runtime Bundle 安装） | Apache-2.0 | Gradle 依赖（sandbox-manager 模块） |
+| WebKit（`androidx.webkit`） | WebView 兼容层 | Apache-2.0 | Gradle 依赖 |
 
 ## 再分发合规说明
 

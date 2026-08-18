@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.io.File
 import android.util.Log
 
@@ -26,12 +27,11 @@ import android.util.Log
 class DefaultSandboxManager(
     private val config: SandboxConfig,
     private val healthChecker: SandboxHealthChecker = HttpHealthChecker(config.dshHost, config.dshPort),
+    private val processRunner: SandboxProcessRunner = SandboxProcessRunner(config),
+    private val bundleManager: BundleManager = BundleManager(config),
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
 ) : SandboxManager {
 
-    private val bundleManager = BundleManager(config)
-    private val processRunner = SandboxProcessRunner(config)
-
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val _state = MutableStateFlow(SandboxState.UNINITIALIZED)
     override val state: StateFlow<SandboxState> = _state.asStateFlow()
 
@@ -52,8 +52,10 @@ class DefaultSandboxManager(
         _state.value = SandboxState.STOPPED
     }
 
-    override suspend fun start() = lifecycleMutex.withLock {
-        if (_state.value == SandboxState.RUNNING || _state.value == SandboxState.READY) return@withLock
+    override suspend fun start() = lifecycleMutex.withLock { startLocked() }
+
+    private suspend fun startLocked() {
+        if (_state.value == SandboxState.RUNNING || _state.value == SandboxState.READY) return
         _state.value = SandboxState.STARTING
         try {
             ensureRuntimePresent()
@@ -74,7 +76,7 @@ class DefaultSandboxManager(
         } catch (t: Throwable) {
             Log.e(TAG, "start failed: ${t.message}", t)
             _state.value = SandboxState.ERROR
-            return@withLock
+            return
         }
         _state.value = SandboxState.RUNNING
         restartAttempts = 0
@@ -82,22 +84,30 @@ class DefaultSandboxManager(
     }
 
     override suspend fun stop() {
-        lifecycleMutex.withLock {
-            Log.i(TAG, "stop(): cancelling health loop, process=${runningProcess != null}")
-            Log.d(TAG, "stop() caller:", Throwable("stop() call stack"))
-            healthLoopJob?.cancel()
-            healthLoopJob = null
-            runningProcess?.let { processRunner.stop(it) }
-            runningProcess = null
-            _state.value = SandboxState.STOPPED
-            Log.i(TAG, "stop(): state=STOPPED")
-        }
+        lifecycleMutex.withLock { stopLocked() }
     }
 
-    override suspend fun restart() {
-        stop()
+    private suspend fun stopLocked() {
+        Log.i(TAG, "stop(): cancelling health loop, process=${runningProcess != null}")
+        Log.d(TAG, "stop() caller:", Throwable("stop() call stack"))
+        healthLoopJob?.cancel()
+        healthLoopJob = null
+        runningProcess?.let { processRunner.stop(it) }
+        runningProcess = null
+        _state.value = SandboxState.STOPPED
+        Log.i(TAG, "stop(): state=STOPPED")
+    }
+
+    /**
+     * Restart the sandbox. Holds [lifecycleMutex] for the entire
+     * stop→start sequence so that no other coroutine (e.g. the health
+     * loop's auto-restart) can interleave and cause a double-start or
+     * state corruption.
+     */
+    override suspend fun restart() = lifecycleMutex.withLock {
+        stopLocked()
         delay(200L)
-        start()
+        startLocked()
     }
 
     override suspend fun forceStop() {
@@ -113,12 +123,10 @@ class DefaultSandboxManager(
         if (_state.value != SandboxState.RUNNING && _state.value != SandboxState.READY) {
             return AppResult.Failure(AppError("SANDBOX_NOT_RUNNING", "Sandbox is not running"))
         }
-        // TODO(phase-1): execute /opt/dshapp/start_dsh.sh inside the Debian
-        // sandbox and parse DSH_VERSION/DSH_PLUGIN_API_VERSION.
-        val health = healthChecker.check()
-        return if (health.webUiReady) {
+        // Poll health with timeout; DSH starts asynchronously inside the sandbox.
+        if (awaitReady(config.dshReadyTimeoutMs)) {
             _state.value = SandboxState.READY
-            AppResult.Success(
+            return AppResult.Success(
                 DshRuntimeStatus(
                     dshVersion = null,
                     pluginApiVersion = null,
@@ -127,28 +135,56 @@ class DefaultSandboxManager(
                 ),
             )
         } else {
-            AppResult.Failure(AppError("DSH_NOT_READY", "DSH did not become ready in time"))
+            return AppResult.Failure(AppError("DSH_NOT_READY", "DSH did not become ready in time"))
         }
     }
 
     override suspend fun stopDsh() {
-        // TODO(phase-1): terminate DSH child process only, not the whole sandbox.
+        if (_state.value !in setOf(SandboxState.RUNNING, SandboxState.READY)) return
+        Log.i(TAG, "stopDsh(): terminating DSH guest process tree only")
+        processRunner.stopDsh()
+        // State stays RUNNING; sandbox (PRoot) remains alive.
     }
 
     override suspend fun recover(level: RecoveryLevel): AppResult<Unit> {
         _state.value = SandboxState.RECOVERING
         return when (level) {
             RecoveryLevel.DSH_RESTART -> {
+                // Light path: stop DSH only. If the sandbox is still alive and
+                // DSH does not auto-restart, fall back to a full sandbox restart.
                 stopDsh()
-                startDsh().map { }
+                delay(500L)
+                if (awaitReady(10_000L)) {
+                    _state.value = SandboxState.READY
+                    startHealthLoop()
+                    AppResult.Success(Unit)
+                } else {
+                    // Fallback: full sandbox restart re-runs start_dsh.sh.
+                    restart()
+                    if (awaitReady(config.dshReadyTimeoutMs)) {
+                        _state.value = SandboxState.READY
+                        startHealthLoop()
+                        AppResult.Success(Unit)
+                    } else {
+                        AppResult.Failure(AppError("RECOVERY_DSH_RESTART_FAILED", "DSH did not recover in time"))
+                    }
+                }
             }
             RecoveryLevel.SANDBOX_RESTART -> {
                 restart()
-                AppResult.Success(Unit)
+                if (awaitReady(config.dshReadyTimeoutMs)) {
+                    _state.value = SandboxState.READY
+                    startHealthLoop()
+                    AppResult.Success(Unit)
+                } else {
+                    AppResult.Failure(AppError("RECOVERY_SANDBOX_RESTART_FAILED", "Sandbox did not recover in time"))
+                }
             }
             else -> AppResult.Failure(AppError("RECOVERY_UNSUPPORTED", "Recovery level not implemented yet"))
         }.also { result ->
-            _state.value = if (result is AppResult.Success) SandboxState.RUNNING else SandboxState.ERROR
+            if (result is AppResult.Failure) {
+                _state.value = SandboxState.ERROR
+            }
         }
     }
 
@@ -304,7 +340,7 @@ class DefaultSandboxManager(
                     _state.value = SandboxState.ERROR
                     return@launch
                 }
-                delay(2_000L)
+                delay(config.healthCheckIntervalMs)
             }
         }
     }
@@ -316,6 +352,19 @@ class DefaultSandboxManager(
             }
             is AppResult.Failure -> AppResult.Failure(error)
         }
+
+    /**
+     * Polls the DSH WebUI until it becomes ready or [timeoutMs] elapses.
+     * Runs on the IO dispatcher so long waits never block the caller.
+     */
+    private suspend fun awaitReady(timeoutMs: Long): Boolean = withContext(Dispatchers.IO) {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            if (healthChecker.check().webUiReady) return@withContext true
+            delay(1_000L)
+        }
+        false
+    }
 
     companion object {
         private const val TAG = "SandboxManager"

@@ -58,6 +58,8 @@ class SandboxService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Apply runtime overrides from Intent extras (host, port, timeout).
+        Constants.applyIntentExtras(intent)
         when (intent?.action) {
             ACTION_RESTART -> serviceScope.launch { restartSandbox() }
             ACTION_STOP -> {
@@ -123,19 +125,19 @@ class SandboxService : Service() {
 
     private fun updateNotification(state: SandboxState) {
         val (title, text) = when (state) {
-            SandboxState.READY -> "DSH 运行中" to "127.0.0.1:3080 · 正在提供本机访问"
-            SandboxState.STARTING, SandboxState.INITIALIZING -> "Dsh" to "正在启动 DSH…"
-            SandboxState.RECOVERING -> "Dsh" to "DSH 恢复中…"
-            SandboxState.ERROR -> "Dsh" to "DSH 异常，请重试"
-            SandboxState.STOPPED -> "Dsh" to "DSH 已停止"
-            else -> "Dsh" to "沙盒运行中 · ${Constants.DSH_BASE_URL}"
+            SandboxState.READY -> getString(R.string.notification_title_running) to getString(R.string.notification_text_running)
+            SandboxState.STARTING, SandboxState.INITIALIZING -> getString(R.string.notification_title_starting) to getString(R.string.notification_text_starting)
+            SandboxState.RECOVERING -> getString(R.string.notification_title_starting) to getString(R.string.notification_text_recovering)
+            SandboxState.ERROR -> getString(R.string.notification_title_starting) to getString(R.string.notification_text_error)
+            SandboxState.STOPPED -> getString(R.string.notification_title_starting) to getString(R.string.notification_text_stopped)
+            else -> getString(R.string.notification_title_starting) to getString(R.string.notification_text_fallback, Constants.DSH_BASE_URL)
         }
         NotificationManagerCompat.from(this).notify(NOTIFICATION_ID, buildNotification(title, text))
     }
 
     private fun buildNotification(
-        contentTitle: String = "DSH 运行中",
-        contentText: String = "127.0.0.1:3080 · 正在提供本机访问",
+        contentTitle: String = getString(R.string.notification_title_running),
+        contentText: String = getString(R.string.notification_text_running),
     ): Notification {
         val openIntent = Intent(Intent.ACTION_VIEW, Uri.parse(Constants.DSH_BASE_URL))
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -169,9 +171,9 @@ class SandboxService : Service() {
             .setColor(0xFF10A37F.toInt())
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
-            .addAction(0, "打开 DSH", openPending)
-            .addAction(0, "重启", restartPending)
-            .addAction(0, "停止", stopPending)
+            .addAction(0, getString(R.string.notification_action_open), openPending)
+            .addAction(0, getString(R.string.notification_action_restart), restartPending)
+            .addAction(0, getString(R.string.notification_action_stop), stopPending)
             .build()
     }
 
@@ -179,7 +181,7 @@ class SandboxService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "DSH Sandbox",
+                getString(R.string.notification_channel_name),
                 NotificationManager.IMPORTANCE_LOW,
             )
             val manager = getSystemService(NotificationManager::class.java)

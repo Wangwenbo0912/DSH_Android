@@ -1,0 +1,203 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────
+  # Build the ARM64 Runtime Bundle (Debian rootfs + Node + DSH).
+  # Requires a Linux runner with sudo + debootstrap + qemu-user-static.
+  # ─────────────────────────────────────────────────────────────────────
+  bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    outputs:
+      bundle_name: ${{ steps.pack.outputs.bundle_name }}
+      bundle_sha256: ${{ steps.pack.outputs.bundle_sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y debootstrap qemu-user-static nodejs npm
+          node --version
+          npm --version
+
+      - name: Grant execute permission to scripts
+        run: chmod +x tools/*.sh runtime-bundle/scripts/*.sh runtime-bundle/build_rootfs.sh
+
+      - name: Build runtime bundle
+        run: |
+          DSH_VERSION="${DSH_VERSION:-0.1.0-rc.6}" \
+            tools/build_arm64_runtime_bundle.sh trixie arm64
+        env:
+          DS_BUILD_CACHE: ${{ runner.temp }}/dshapp-build
+          # Keep the bundle deterministic-ish and off the slow Debian CDN mirror
+          MIRROR: http://deb.debian.org/debian
+
+      - name: Persist bundle
+        id: pack
+        run: |
+          BUNDLE=$(ls build/dshapp-runtime-debian-*.tar.gz | head -1)
+          echo "bundle path: $BUNDLE"
+          SHA256=$(sha256sum "$BUNDLE" | awk '{print $1}')
+          NAME=$(basename "$BUNDLE")
+          echo "bundle_name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "bundle_sha256=$SHA256" >> "$GITHUB_OUTPUT"
+          mkdir -p dist
+          cp "$BUNDLE" dist/
+          sha256sum "$BUNDLE" > dist/SHA256SUMS
+          cat dist/SHA256SUMS
+
+      - name: Upload bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-bundle
+          path: dist/
+          retention-days: 14
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Build the signed Release APK embedding the runtime bundle.
+  # ─────────────────────────────────────────────────────────────────────
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    needs: bundle
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download runtime bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: runtime-bundle
+          path: dist/
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-36,build-tools;36.0.0,platform-tools,cmdline-tools;latest'
+
+      - name: Restore signing keystore
+        # Secrets are configured in the repository Settings → Secrets.
+        # Key pairs:
+        #   ANDROID_KEYSTORE_BASE64 — base64 of the release .jks file
+        #   ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "${ANDROID_KEYSTORE_BASE64:-}" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > keystore-release.jks
+            ls -la keystore-release.jks
+          else
+            echo "::warning::No ANDROID_KEYSTORE_BASE64 secret — building an unsigned APK (debug-signed). Install a keystore secret for a distribution-ready artifact."
+          fi
+
+      - name: Write keystore.properties
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -f keystore-release.jks ]; then
+            cat > keystore.properties <<EOF
+            storeFile=$(pwd)/keystore-release.jks
+            storePassword=${ANDROID_KEYSTORE_PASSWORD:-}
+            keyAlias=${ANDROID_KEY_ALIAS:-dshapp}
+            keyPassword=${ANDROID_KEY_PASSWORD:-}
+            EOF
+            echo "keystore.properties written (keystore present)"
+          fi
+
+      - name: Build release APK with embedded bundle
+        env:
+          GRADLE_USER_HOME: ${{ runner.temp }}/gradle-home
+        run: |
+          BUNDLE=$(ls dist/dshapp-runtime-debian-*.tar.gz | head -1)
+          tools/build_apk.sh "$BUNDLE" release
+
+      - name: Verify APK
+        run: |
+          APK=app/build/outputs/apk/release/app-release.apk
+          ls -la "$APK"
+          unzip -l "$APK" | grep -E "assets/runtime/dshapp-runtime" || { echo "bundle missing from APK" >&2; exit 1; }
+          echo "APK sha256: $(sha256sum "$APK" | awk '{print $1}')"
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p dist/
+          cp app/build/outputs/apk/release/app-release.apk dist/
+          # sha256 for all release artifacts
+          (cd dist && sha256sum *.apk *.tar.gz > SHA256SUMS 2>/dev/null || sha256sum *.apk > SHA256SUMS)
+          cat dist/SHA256SUMS
+
+      - name: Upload release APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dshapp-release
+          path: dist/
+          retention-days: 14
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Publish a GitHub Release with the APK + runtime bundle + checksums.
+  # ─────────────────────────────────────────────────────────────────────
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [bundle, apk]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dshapp-release
+          path: dist/
+
+      - name: Get version from tag
+        id: version
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build release notes
+        id: notes
+        run: |
+          {
+            echo "## DSHBox ${{ steps.version.outputs.version }}"
+            echo ""
+            echo "详见 [CHANGELOG](CHANGELOG.md)（如存在）。"
+            echo ""
+            echo "### 安装"
+            echo "下载 \`app-release.apk\` 并安装。首次启动需 1~3 分钟解包运行环境（约 400MB 内置）。"
+            echo ""
+            echo "### 校验"
+            echo "请在安装前校验 SHA-256（见 \`SHA256SUMS\`）。"
+          } > release-notes.md
+          cat release-notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: DSHBox ${{ steps.version.outputs.version }}
+          body_path: release-notes.md
+          files: |
+            dist/*.apk
+            dist/*.tar.gz
+            dist/SHA256SUMS
+          fail_on_unmatched_files: true
+          draft: false
+          prerelease: false

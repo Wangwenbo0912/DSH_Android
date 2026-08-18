@@ -87,6 +87,8 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.webkit)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.androidx.profileinstaller)
+    implementation(libs.snakeyaml)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

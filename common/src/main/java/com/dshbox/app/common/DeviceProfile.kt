@@ -3,6 +3,7 @@ package com.dshbox.app.common
 enum class PerformanceTier {
     HIGH,
     STANDARD,
+    LIMITED,
     LIGHT,
     UNSUPPORTED,
 }
@@ -20,7 +21,7 @@ data class DeviceProfile(
         get() = when {
             totalRamGb >= 12f -> PerformanceTier.HIGH
             totalRamGb >= 8f -> PerformanceTier.STANDARD
-            totalRamGb >= 6f -> PerformanceTier.LIGHT
+            totalRamGb >= 6f -> PerformanceTier.LIMITED
             totalRamGb >= 4f -> PerformanceTier.LIGHT
             else -> PerformanceTier.UNSUPPORTED
         }
