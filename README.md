@@ -56,13 +56,7 @@ DSH 作为 AI Agent 运行在沙箱内的 Debian 环境中，其 WebUI 通过系
 
 ### 截图
 
-> ![首页](docs/screenshots/home.png) *首页 — DSH 状态与启动*
->
-> ![文件管理](docs/screenshots/files.png) *文件管理 — 双视图浏览*
->
-> ![终端](docs/screenshots/terminal.png) *沙箱终端 — bash 会话*
->
-> ![设置](docs/screenshots/settings.png) *设置 — 模型配置与更新管理*
+> *截图待补充 — 首页（DSH 状态与启动）、文件管理（双视图浏览）、沙箱终端（bash 会话）、设置（模型配置与更新管理）*
 
 ### 快速开始
 
@@ -148,13 +142,7 @@ The DSH Agent runs inside a Debian environment, exposing its WebUI at `http://12
 
 ### Screenshots
 
-> ![Home](docs/screenshots/home.png) *Home — DSH status & launch*
->
-> ![Files](docs/screenshots/files.png) *File Manager — dual-pane browsing*
->
-> ![Terminal](docs/screenshots/terminal.png) *Sandbox Terminal — bash session*
->
-> ![Settings](docs/screenshots/settings.png) *Settings — model config & updates*
+> *Screenshots to be added — Home (DSH status & launch), File Manager (dual-pane browsing), Terminal (bash session), Settings (model config & updates)*
 
 ### Quick Start
 

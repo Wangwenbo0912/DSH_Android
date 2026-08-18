@@ -61,6 +61,7 @@ private val LightColors = lightColorScheme(
     onSurface = LightTextPrimary,
     surfaceVariant = LightSurfaceSecondary,
     onSurfaceVariant = LightTextSecondary,
+    surfaceContainerLow = LightGroupedBackground,
     surfaceContainer = LightSurfaceSecondary,
     surfaceContainerHigh = LightSurfaceTertiary,
     outline = LightBorder,
@@ -81,6 +82,7 @@ private val DarkColors = darkColorScheme(
     onSurface = DarkTextPrimary,
     surfaceVariant = DarkSurfaceSecondary,
     onSurfaceVariant = DarkTextSecondary,
+    surfaceContainerLow = DarkGroupedBackground,
     surfaceContainer = DarkSurfaceSecondary,
     surfaceContainerHigh = DarkSurfaceElevated,
     outline = DarkBorder,
@@ -90,13 +92,13 @@ private val DarkColors = darkColorScheme(
     error = Error,
 )
 
-/** Shape tokens per UI spec: S=6, M=10, L=14, Dialog=16. */
+/** iOS-flavored shape tokens: small chips 6-8, cards 12-16, dialogs 20. */
 val AppShapes = Shapes(
     extraSmall = RoundedCornerShape(6.dp),
-    small = RoundedCornerShape(6.dp),
-    medium = RoundedCornerShape(10.dp),
-    large = RoundedCornerShape(14.dp),
-    extraLarge = RoundedCornerShape(16.dp),
+    small = RoundedCornerShape(8.dp),
+    medium = RoundedCornerShape(12.dp),
+    large = RoundedCornerShape(16.dp),
+    extraLarge = RoundedCornerShape(20.dp),
 )
 
 @Composable

@@ -93,8 +93,8 @@
     <string name="settings_sandbox_start">启动</string>
     <string name="settings_sandbox_stop">停止</string>
     <string name="settings_sandbox_restart">重启</string>
-    <string name="settings_sandbox_repair">修复</string>
-    <string name="settings_sandbox_repair_message">请先停止沙盒后重新安装运行环境</string>
+    <string name="settings_sandbox_repair">重装指引</string>
+    <string name="settings_sandbox_repair_message">请先停止沙盒，然后通过"离线导入更新包"功能重新安装运行环境</string>
     <string name="settings_section_appearance">外观</string>
     <string name="settings_appearance">主题</string>
     <string name="settings_appearance_follow_system">跟随系统</string>

@@ -6,6 +6,13 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.InfiniteTransition
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -53,6 +60,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -82,33 +90,23 @@ import com.dshbox.app.R
 import com.dshbox.app.util.formatFileSize
 import com.dshbox.app.util.queryDisplayName
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-// --- Design tokens (spec) ---
-private val PrimaryGreen = Color(0xFF10A37F)
-private val PageBg = Color(0xFFFFFFFF)
-private val CardBg = Color(0xFFF8FAF9)
-private val LightGreenCard = Color(0xFFF2F9F6)
-private val SelectedRowBg = Color(0xFFEAF8F4)
-private val TextPrimary = Color(0xFF1F2937)
-private val TextSecondary = Color(0xFF6B7280)
-private val TextHint = Color(0xFF9CA3AF)
-private val DividerColor = Color(0xFFF3F4F6)
-private val ControlBg = Color(0xFFF3F4F6)
+// Neutral shadow for cards: theme-independent (barely visible on dark surfaces).
 private val CardShadow = Color(0x0A000000) // rgba(0,0,0,0.04)
 
 private enum class SortMode { NAME, TIME, SIZE }
 
 private enum class ViewMode { LIST, GRID }
 
-private val timeFmt = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
+private val timeFmt = DateTimeFormatter.ofPattern("MM-dd HH:mm")
 
 @Composable
 fun FilesScreen(modifier: Modifier = Modifier, isActiveTab: Boolean = true) {
@@ -140,6 +138,7 @@ fun FilesScreen(modifier: Modifier = Modifier, isActiveTab: Boolean = true) {
     var searchQuery by remember { mutableStateOf("") }
     var rawEntryCount by remember { mutableIntStateOf(0) }
     var rawHasFiles by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var pendingDeleteTarget by remember { mutableStateOf<File?>(null) }
     var showImportConfirm by remember { mutableStateOf(false) }
@@ -148,6 +147,7 @@ fun FilesScreen(modifier: Modifier = Modifier, isActiveTab: Boolean = true) {
 
     fun refreshEntries() {
         scope.launch {
+            isLoading = true
             val query = searchQuery.trim()
             // Directory listing + sort can be slow on huge rootfs dirs; keep it
             // off the main thread (state updates hop back via the snapshot).
@@ -170,6 +170,7 @@ fun FilesScreen(modifier: Modifier = Modifier, isActiveTab: Boolean = true) {
                             .thenByDescending { if (it.isFile) it.length() else 0L }
                     },
                 )
+            isLoading = false
         }
     }
 
@@ -280,7 +281,7 @@ fun FilesScreen(modifier: Modifier = Modifier, isActiveTab: Boolean = true) {
         refreshEntries()
     }
 
-    Column(modifier = modifier.fillMaxSize().background(PageBg)) {
+    Column(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         val dirProtected = isProtectedDir(currentDir, root)
         // ---------- 1. Top: segmented switch + global icon actions ----------
         if (selectionMode) {
@@ -321,7 +322,7 @@ fun FilesScreen(modifier: Modifier = Modifier, isActiveTab: Boolean = true) {
                     Icon(
                         imageVector = Icons.Outlined.Refresh,
                         contentDescription = stringResource(R.string.files_refresh),
-                        tint = TextSecondary,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(20.dp),
                     )
                 }
@@ -347,7 +348,7 @@ fun FilesScreen(modifier: Modifier = Modifier, isActiveTab: Boolean = true) {
                     Icon(
                         imageVector = Icons.Outlined.Sort,
                         contentDescription = stringResource(R.string.files_sort),
-                        tint = TextSecondary,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(20.dp),
                     )
                 }
@@ -362,7 +363,7 @@ fun FilesScreen(modifier: Modifier = Modifier, isActiveTab: Boolean = true) {
                         contentDescription = stringResource(
                             if (viewMode == ViewMode.LIST) R.string.files_view_grid else R.string.files_view_list,
                         ),
-                        tint = TextSecondary,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(20.dp),
                     )
                 }
@@ -435,9 +436,10 @@ fun FilesScreen(modifier: Modifier = Modifier, isActiveTab: Boolean = true) {
         }
 
         // ---------- 4. File list / grid / empty ----------
-        if (entries.isEmpty() && searchQuery.isNotBlank()) {
+        Box(modifier = Modifier.fillMaxSize()) {
+        if (entries.isEmpty() && searchQuery.isNotBlank() && !isLoading) {
             NoMatchState(modifier = Modifier.fillMaxSize())
-        } else if (entries.isEmpty()) {
+        } else if (entries.isEmpty() && !isLoading) {
             EmptyState(
                 onImport = { showImportConfirm = true },
                 importEnabled = !dirProtected,
@@ -446,27 +448,35 @@ fun FilesScreen(modifier: Modifier = Modifier, isActiveTab: Boolean = true) {
         } else if (viewMode == ViewMode.LIST) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(vertical = 8.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(entries, key = { it.absolutePath }) { file ->
-                    FileListRow(
-                        file = file,
-                        selected = file in selectedFiles,
-                        readOnly = isProtected(file, root),
-                        onClick = {
-                            if (selectionMode) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .shadow(1.dp, MaterialTheme.shapes.medium),
+                        shape = MaterialTheme.shapes.medium,
+                        color = MaterialTheme.colorScheme.surface,
+                    ) {
+                        FileListRow(
+                            file = file,
+                            selected = file in selectedFiles,
+                            readOnly = isProtected(file, root),
+                            onClick = {
+                                if (selectionMode) {
+                                    toggleSelect(file)
+                                } else if (file.isDirectory) {
+                                    currentDir = file
+                                } else {
+                                    pendingExportFile = file
+                                    exportLauncher.launch(file.name)
+                                }
+                            },
+                            onLongClick = {
+                                selectionMode = true
                                 toggleSelect(file)
-                            } else if (file.isDirectory) {
-                                currentDir = file
-                            } else {
-                                pendingExportFile = file
-                                exportLauncher.launch(file.name)
-                            }
-                        },
-                        onLongClick = {
-                            selectionMode = true
-                            toggleSelect(file)
-                        },
+                            },
                         onRename = {
                             if (!isProtected(file, root)) {
                                 renameTarget = file
@@ -487,37 +497,54 @@ fun FilesScreen(modifier: Modifier = Modifier, isActiveTab: Boolean = true) {
                             }
                         },
                     )
+                    }
                 }
             }
         } else {
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 104.dp),
+                columns = GridCells.Adaptive(minSize = 108.dp),
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp),
+                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 items(entries, key = { it.absolutePath }) { file ->
-                    FileGridCell(
-                        file = file,
-                        selected = file in selectedFiles,
-                        readOnly = isProtected(file, root),
-                        onClick = {
-                            if (selectionMode) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .shadow(1.dp, MaterialTheme.shapes.medium),
+                        shape = MaterialTheme.shapes.medium,
+                        color = MaterialTheme.colorScheme.surface,
+                    ) {
+                        FileGridCell(
+                            file = file,
+                            selected = file in selectedFiles,
+                            readOnly = isProtected(file, root),
+                            onClick = {
+                                if (selectionMode) {
+                                    toggleSelect(file)
+                                } else if (file.isDirectory) {
+                                    currentDir = file
+                                } else {
+                                    pendingExportFile = file
+                                    exportLauncher.launch(file.name)
+                                }
+                            },
+                            onLongClick = {
+                                selectionMode = true
                                 toggleSelect(file)
-                            } else if (file.isDirectory) {
-                                currentDir = file
-                            } else {
-                                pendingExportFile = file
-                                exportLauncher.launch(file.name)
-                            }
-                        },
-                        onLongClick = {
-                            selectionMode = true
-                            toggleSelect(file)
-                        },
-                    )
+                            },
+                        )
+                    }
                 }
+            }
+        }
+            if (isLoading) {
+                ShimmerPlaceholder(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .fillMaxWidth(),
+                )
             }
         }
     }
@@ -567,14 +594,14 @@ fun FilesScreen(modifier: Modifier = Modifier, isActiveTab: Boolean = true) {
                     Text(
                         text = stringResource(R.string.files_import_confirm_msg),
                         fontSize = 14.sp,
-                        color = TextSecondary,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(
                         text = guestDisplayPath(currentDir, root, rootMode == 1),
                         fontSize = 12.sp,
                         fontFamily = FontFamily.Monospace,
-                        color = TextPrimary,
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 3,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -582,7 +609,7 @@ fun FilesScreen(modifier: Modifier = Modifier, isActiveTab: Boolean = true) {
                     Text(
                         text = stringResource(R.string.files_import_confirm_hint),
                         fontSize = 12.sp,
-                        color = TextHint,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
                     )
                 }
             },
@@ -594,7 +621,7 @@ fun FilesScreen(modifier: Modifier = Modifier, isActiveTab: Boolean = true) {
                         importLauncher.launch(arrayOf("*/*"))
                     },
                 ) {
-                    Text(stringResource(R.string.files_import_confirm_action), color = PrimaryGreen)
+                    Text(stringResource(R.string.files_import_confirm_action), color = MaterialTheme.colorScheme.primary)
                 }
             },
             dismissButton = {
@@ -617,7 +644,7 @@ fun FilesScreen(modifier: Modifier = Modifier, isActiveTab: Boolean = true) {
                     Text(
                         text = stringResource(R.string.files_export_picker_empty),
                         fontSize = 14.sp,
-                        color = TextHint,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
                         modifier = Modifier.padding(vertical = 16.dp),
                     )
                 } else {
@@ -638,7 +665,7 @@ fun FilesScreen(modifier: Modifier = Modifier, isActiveTab: Boolean = true) {
                                 Icon(
                                     imageVector = Icons.Outlined.InsertDriveFile,
                                     contentDescription = null,
-                                    tint = TextHint,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
                                     modifier = Modifier.size(20.dp),
                                 )
                                 Spacer(Modifier.width(10.dp))
@@ -646,20 +673,20 @@ fun FilesScreen(modifier: Modifier = Modifier, isActiveTab: Boolean = true) {
                                     Text(
                                         text = file.name,
                                         fontSize = 14.sp,
-                                        color = TextPrimary,
+                                        color = MaterialTheme.colorScheme.onSurface,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                     )
                                     Text(
                                         text = formatFileSize(file.length()),
                                         fontSize = 12.sp,
-                                        color = TextHint,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
                                     )
                                 }
                                 Icon(
                                     imageVector = Icons.Filled.MoreVert,
                                     contentDescription = null,
-                                    tint = TextHint,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
                                     modifier = Modifier.size(16.dp),
                                 )
                             }
@@ -712,7 +739,7 @@ fun FilesScreen(modifier: Modifier = Modifier, isActiveTab: Boolean = true) {
                         }
                     },
                 ) {
-                    Text(stringResource(R.string.files_delete), color = Color(0xFFDC2626))
+                    Text(stringResource(R.string.files_delete), color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
@@ -820,7 +847,7 @@ private fun SegmentedSwitch(
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))
-            .background(ControlBg)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
             .padding(2.dp),
     ) {
         options.forEachIndexed { index, label ->
@@ -829,7 +856,7 @@ private fun SegmentedSwitch(
                 modifier = Modifier
                     .weight(1f)
                     .clip(RoundedCornerShape(10.dp))
-                    .background(if (isSelected) PrimaryGreen else Color.Transparent)
+                    .background(if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent)
                     .clickable { onSelect(index) }
                     .padding(vertical = 8.dp),
                 contentAlignment = Alignment.Center,
@@ -838,7 +865,7 @@ private fun SegmentedSwitch(
                     text = label,
                     fontSize = 14.sp,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                    color = if (isSelected) Color.White else TextSecondary,
+                    color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
@@ -865,7 +892,7 @@ private fun SelectionActionBar(
             text = stringResource(R.string.files_selected_count, count),
             fontSize = 14.sp,
             fontWeight = FontWeight.Medium,
-            color = TextPrimary,
+            color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1f),
         )
         TextButton(onClick = onRename, enabled = canRename) {
@@ -910,13 +937,13 @@ private fun Breadcrumb(
                 Text(
                     text = " / ",
                     fontSize = 13.sp,
-                    color = TextHint,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
                 )
             }
             Text(
                 text = label,
                 fontSize = 13.sp,
-                color = if (index == segments.lastIndex) TextSecondary else TextHint,
+                color = if (index == segments.lastIndex) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 // Only the trailing crumb takes the flexible width; weight(0f)
@@ -944,14 +971,14 @@ private fun MiniSearchField(
         modifier = modifier
             .height(32.dp)
             .clip(RoundedCornerShape(8.dp))
-            .border(1.dp, DividerColor, RoundedCornerShape(8.dp))
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
             .padding(horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
             imageVector = Icons.Outlined.Search,
-            contentDescription = null,
-            tint = TextHint,
+            contentDescription = stringResource(R.string.files_search_hint),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
             modifier = Modifier.size(16.dp),
         )
         Spacer(Modifier.width(6.dp))
@@ -960,7 +987,7 @@ private fun MiniSearchField(
                 Text(
                     text = stringResource(R.string.files_search_hint),
                     fontSize = 13.sp,
-                    color = TextHint,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
                     maxLines = 1,
                 )
             }
@@ -968,7 +995,7 @@ private fun MiniSearchField(
                 value = query,
                 onValueChange = onQueryChange,
                 singleLine = true,
-                textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, color = TextPrimary),
+                textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface),
                 modifier = Modifier.fillMaxSize(),
             )
         }
@@ -981,7 +1008,7 @@ private fun MiniSearchField(
                 Icon(
                     imageVector = Icons.Filled.Close,
                     contentDescription = stringResource(R.string.files_clear_search),
-                    tint = TextHint,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
                     modifier = Modifier.size(14.dp),
                 )
             }
@@ -1001,9 +1028,9 @@ private fun ActionCard(
     enabled: Boolean = true,
 ) {
     val bg = when {
-        !enabled -> CardBg
-        primary -> PrimaryGreen
-        else -> LightGreenCard
+        !enabled -> MaterialTheme.colorScheme.surfaceVariant
+        primary -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.secondaryContainer
     }
     Column(
         modifier = modifier
@@ -1018,17 +1045,61 @@ private fun ActionCard(
         Icon(
             imageVector = icon,
             contentDescription = label,
-            tint = if (primary) Color.White else if (enabled) PrimaryGreen else TextHint,
+            tint = if (primary) Color.White else if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
             modifier = Modifier.size(24.dp),
         )
         Spacer(Modifier.height(6.dp))
         Text(
             text = label,
             fontSize = 13.sp,
-            color = if (primary) Color.White else TextSecondary,
+            color = if (primary) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+    }
+}
+
+// ---------- Shimmer loading placeholder ----------
+
+/**
+ * Animated shimmer placeholder: a column of card-shaped boxes with a moving
+ * gradient highlight, shown while the file list is loading.
+ */
+@Composable
+private fun ShimmerPlaceholder(modifier: Modifier = Modifier) {
+    val infiniteTransition = rememberInfiniteTransition(label = "shimmer")
+    val shimmerOffset by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1000f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "shimmer-position",
+    )
+    val brush = androidx.compose.ui.graphics.Brush.linearGradient(
+        colors = listOf(
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+        ),
+        // Start further right as shimmerOffset increases, so the highlight
+        // sweeps from left to right across the placeholder.
+        start = androidx.compose.ui.geometry.Offset(shimmerOffset, 0f),
+        end = androidx.compose.ui.geometry.Offset(shimmerOffset + 200f, 0f),
+    )
+    Column(
+        modifier = modifier.padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        repeat(8) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+                    .background(brush, RoundedCornerShape(12.dp)),
+            )
+        }
     }
 }
 
@@ -1051,7 +1122,7 @@ private fun FileListRow(
         modifier = Modifier
             .fillMaxWidth()
             .height(56.dp)
-            .background(if (selected) SelectedRowBg else Color.Transparent)
+            .background(if (selected) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f) else Color.Transparent)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(start = 24.dp, end = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1059,7 +1130,7 @@ private fun FileListRow(
         Icon(
             imageVector = if (file.isDirectory) Icons.Filled.Folder else Icons.Outlined.InsertDriveFile,
             contentDescription = null,
-            tint = if (file.isDirectory) PrimaryGreen else TextHint,
+            tint = if (file.isDirectory) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
             modifier = Modifier.size(24.dp),
         )
         Spacer(Modifier.width(12.dp))
@@ -1068,7 +1139,7 @@ private fun FileListRow(
                 text = file.name,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
-                color = TextPrimary,
+                color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -1076,7 +1147,7 @@ private fun FileListRow(
             Text(
                 text = fileSubtitle(file),
                 fontSize = 12.sp,
-                color = TextHint,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
                 maxLines = 1,
             )
         }
@@ -1084,7 +1155,7 @@ private fun FileListRow(
             Text(
                 text = stringResource(R.string.files_read_only),
                 fontSize = 11.sp,
-                color = TextHint,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
                 modifier = Modifier.padding(end = 8.dp),
             )
         }
@@ -1094,7 +1165,7 @@ private fun FileListRow(
             Icon(
                 imageVector = Icons.Filled.MoreVert,
                 contentDescription = stringResource(R.string.files_more),
-                tint = TextSecondary,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier
                     .size(24.dp)
                     .clip(RoundedCornerShape(8.dp))
@@ -1129,11 +1200,6 @@ private fun FileListRow(
             }
         }
     }
-    HorizontalDivider(
-        modifier = Modifier.padding(start = 60.dp),
-        thickness = 0.5.dp,
-        color = DividerColor,
-    )
 }
 
 // ---------- File grid cell ----------
@@ -1150,7 +1216,7 @@ private fun FileGridCell(
     Column(
         modifier = Modifier
             .clip(RoundedCornerShape(12.dp))
-            .background(if (selected) SelectedRowBg else Color.Transparent)
+            .background(if (selected) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f) else Color.Transparent)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(vertical = 14.dp, horizontal = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -1158,7 +1224,7 @@ private fun FileGridCell(
         Icon(
             imageVector = if (file.isDirectory) Icons.Filled.Folder else Icons.Outlined.InsertDriveFile,
             contentDescription = null,
-            tint = if (file.isDirectory) PrimaryGreen else TextHint,
+            tint = if (file.isDirectory) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
             modifier = Modifier.size(32.dp),
         )
         Spacer(Modifier.height(8.dp))
@@ -1166,7 +1232,7 @@ private fun FileGridCell(
             text = file.name,
             fontSize = 13.sp,
             fontWeight = FontWeight.Medium,
-            color = TextPrimary,
+            color = MaterialTheme.colorScheme.onSurface,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center,
@@ -1175,14 +1241,14 @@ private fun FileGridCell(
         Text(
             text = fileSubtitle(file),
             fontSize = 11.sp,
-            color = TextHint,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
             maxLines = 1,
         )
         if (readOnly) {
             Text(
                 text = stringResource(R.string.files_read_only),
                 fontSize = 10.sp,
-                color = TextHint,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
             )
         }
     }
@@ -1200,14 +1266,14 @@ private fun NoMatchState(modifier: Modifier = Modifier) {
         Icon(
             imageVector = Icons.Outlined.Search,
             contentDescription = null,
-            tint = Color(0xFFE5E7EB),
+            tint = MaterialTheme.colorScheme.outlineVariant,
             modifier = Modifier.size(48.dp),
         )
         Spacer(Modifier.height(12.dp))
         Text(
             text = stringResource(R.string.files_no_match),
             fontSize = 14.sp,
-            color = TextSecondary,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
@@ -1228,20 +1294,20 @@ private fun EmptyState(
         Icon(
             imageVector = Icons.Outlined.FolderOpen,
             contentDescription = null,
-            tint = Color(0xFFE5E7EB),
+            tint = MaterialTheme.colorScheme.outlineVariant,
             modifier = Modifier.size(64.dp),
         )
         Spacer(Modifier.height(12.dp))
         Text(
             text = stringResource(R.string.files_empty_title),
             fontSize = 14.sp,
-            color = TextSecondary,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(4.dp))
         Text(
             text = stringResource(R.string.files_empty_hint),
             fontSize = 12.sp,
-            color = TextHint,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
         )
         Spacer(Modifier.height(16.dp))
         TextButton(
@@ -1252,7 +1318,7 @@ private fun EmptyState(
             Text(
                 text = stringResource(R.string.files_import),
                 fontSize = 13.sp,
-                color = PrimaryGreen,
+                color = MaterialTheme.colorScheme.primary,
             )
         }
     }
@@ -1264,7 +1330,7 @@ private fun EmptyState(
 private fun fileSubtitle(file: File): String = if (file.isDirectory) {
     androidx.compose.ui.res.stringResource(R.string.files_directory)
 } else {
-    "${formatFileSize(file.length())} · ${timeFmt.format(Date(file.lastModified()))}"
+    "${formatFileSize(file.length())} 路 ${timeFmt.format(Instant.ofEpochMilli(file.lastModified()).atZone(ZoneId.systemDefault()).toLocalDateTime())}"
 }
 
 /**
@@ -1362,3 +1428,4 @@ private fun zipDirectoryToUri(context: Context, dir: File, uri: Uri) {
         }
     }
 }
+

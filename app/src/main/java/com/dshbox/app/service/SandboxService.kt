@@ -37,7 +37,7 @@ import kotlinx.coroutines.launch
  */
 class SandboxService : Service() {
 
-    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     @Volatile
     private var restartInProgress = false

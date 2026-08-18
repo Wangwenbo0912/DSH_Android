@@ -89,7 +89,9 @@ class DefaultSandboxManager(
 
     private suspend fun stopLocked() {
         Log.i(TAG, "stop(): cancelling health loop, process=${runningProcess != null}")
-        Log.d(TAG, "stop() caller:", Throwable("stop() call stack"))
+        if (Log.isLoggable(TAG, Log.DEBUG)) {
+            Log.d(TAG, "stop() caller:", Throwable("stop() call stack"))
+        }
         healthLoopJob?.cancel()
         healthLoopJob = null
         runningProcess?.let { processRunner.stop(it) }

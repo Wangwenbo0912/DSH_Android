@@ -1,11 +1,32 @@
 package com.dshbox.app.ui
 
+import android.Manifest
+import android.os.Build
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -15,14 +36,20 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.invisibleToUser
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import androidx.core.content.ContextCompat
 import com.dshbox.app.DshApp
 import com.dshbox.app.R
 import com.dshbox.app.sandbox.BundledRuntimeInstaller
@@ -35,6 +62,9 @@ import com.dshbox.app.ui.settings.SettingsScreen
 import com.dshbox.app.ui.theme.AppIcons
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+
+/** Height of the app's own bottom NavigationBar (Material3 default 80dp). */
+internal val AppNavBarHeightDp = 80.dp
 
 private data class TabSpec(val labelRes: Int, val icon: AppIcons)
 
@@ -58,6 +88,25 @@ fun MainScreen() {
     var runtimeInstalled by remember { mutableStateOf(sandboxManager.isRuntimeInstalled()) }
     val bundledRuntimeAvailable = remember {
         BundledRuntimeInstaller(app, app.container.sandboxConfig).hasBundledBundle()
+    }
+
+    // Android 13+ (API 33+): POST_NOTIFICATIONS must be granted at runtime or
+    // the foreground-service notification is blocked by the system. Declared in
+    // the manifest; request it once on first launch.
+    val context = LocalContext.current
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { /* granted/denied — the foreground service still runs */ }
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val granted = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS,
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!granted) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
     }
 
     val tabs = listOf(
@@ -108,16 +157,11 @@ fun MainScreen() {
                 // recomposition, so there is no intermediate frame.
                 .alpha(if (splashVisible) 0f else 1f),
             bottomBar = {
-                NavigationBar {
-                    tabs.forEachIndexed { index, tab ->
-                        NavigationBarItem(
-                            selected = selectedTab == index,
-                            onClick = { selectedTab = index },
-                            icon = { tab.icon.Content() },
-                            label = { Text(stringResource(tab.labelRes)) },
-                        )
-                    }
-                }
+                IosTabBar(
+                    tabs = tabs,
+                    selectedTab = selectedTab,
+                    onSelect = { selectedTab = it },
+                )
             },
         ) { innerPadding ->
             Box(
@@ -154,46 +198,63 @@ private fun TabContent(
     onNavigateToSettings: () -> Unit,
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
-        HomeScreen(
-            modifier = Modifier
-                .fillMaxSize()
-                .zIndex(if (selectedTab == 0) 1f else 0f)
-                .alpha(if (selectedTab == 0) 1f else 0f)
-                .then(if (selectedTab == 0) Modifier else Modifier.hiddenTab()),
-            sandboxReady = sandboxReady,
-            sandboxError = sandboxError,
-            sandboxStopped = sandboxStopped,
-            runtimeInstalled = runtimeInstalled,
-            bundledRuntimeAvailable = bundledRuntimeAvailable,
-            onNavigateToSettings = onNavigateToSettings,
-        )
-        FilesScreen(
-            modifier = Modifier
-                .fillMaxSize()
-                .zIndex(if (selectedTab == 1) 1f else 0f)
-                .alpha(if (selectedTab == 1) 1f else 0f)
-                .then(if (selectedTab == 1) Modifier else Modifier.hiddenTab()),
-            isActiveTab = selectedTab == 1,
-        )
-        SandboxScreen(
-            modifier = Modifier
-                .fillMaxSize()
-                .zIndex(if (selectedTab == 2) 1f else 0f)
-                .alpha(if (selectedTab == 2) 1f else 0f)
-                .then(if (selectedTab == 2) Modifier else Modifier.hiddenTab()),
-            sandboxReady = sandboxReady,
-            sandboxStopped = sandboxStopped,
-            onNavigateToSettings = onNavigateToSettings,
-            isActiveTab = selectedTab == 2,
-        )
-        SettingsScreen(
-            modifier = Modifier
-                .fillMaxSize()
-                .zIndex(if (selectedTab == 3) 1f else 0f)
-                .alpha(if (selectedTab == 3) 1f else 0f)
-                .then(if (selectedTab == 3) Modifier else Modifier.hiddenTab()),
-            sandboxReady = sandboxReady,
-        )
+        // The selected tab fades in with a subtle spring; every tab stays
+        // composed (so the terminal keeps running), hidden tabs only lose
+        // alpha, hit-testing and accessibility.
+        AnimatedTab(visible = selectedTab == 0, zIndex = if (selectedTab == 0) 1f else 0f) {
+            HomeScreen(
+                sandboxReady = sandboxReady,
+                sandboxError = sandboxError,
+                sandboxStopped = sandboxStopped,
+                runtimeInstalled = runtimeInstalled,
+                bundledRuntimeAvailable = bundledRuntimeAvailable,
+                onNavigateToSettings = onNavigateToSettings,
+            )
+        }
+        AnimatedTab(visible = selectedTab == 1, zIndex = if (selectedTab == 1) 1f else 0f) {
+            FilesScreen(
+                isActiveTab = selectedTab == 1,
+            )
+        }
+        AnimatedTab(visible = selectedTab == 2, zIndex = if (selectedTab == 2) 1f else 0f) {
+            SandboxScreen(
+                sandboxReady = sandboxReady,
+                sandboxStopped = sandboxStopped,
+                onNavigateToSettings = onNavigateToSettings,
+                isActiveTab = selectedTab == 2,
+            )
+        }
+        AnimatedTab(visible = selectedTab == 3, zIndex = if (selectedTab == 3) 1f else 0f) {
+            SettingsScreen(
+                sandboxReady = sandboxReady,
+            )
+        }
+    }
+}
+
+/**
+ * Wraps one tab screen: animates alpha with a soft spring on activation,
+ * removes hidden tabs from hit-testing and the accessibility tree.
+ */
+@Composable
+private fun AnimatedTab(
+    visible: Boolean,
+    zIndex: Float,
+    content: @Composable () -> Unit,
+) {
+    val animatedAlpha by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.75f, stiffness = 260f),
+        label = "tab-alpha",
+    )
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .zIndex(zIndex)
+            .alpha(animatedAlpha)
+            .then(if (visible) Modifier else Modifier.hiddenTab()),
+    ) {
+        content()
     }
 }
 
@@ -201,6 +262,11 @@ private fun TabContent(
  * Keeps a non-selected tab composed (so the terminal keeps running) while
  * removing it from the accessibility tree and from hit-testing, so taps on
  * the visible tab can never reach hidden screens below.
+ *
+ * The pointer-input loop suspends on every gesture (it does not poll), so it
+ * consumes no CPU while idle; it only marks incoming pointer events as consumed
+ * so the hidden screen behind the alpha(0f) overlay can never react to taps
+ * intended for the visible tab.
  */
 private fun Modifier.hiddenTab(): Modifier = this
     .semantics { invisibleToUser() }
@@ -211,3 +277,71 @@ private fun Modifier.hiddenTab(): Modifier = this
             }
         }
     }
+
+/**
+ * iOS-style bottom tab bar: row of icon + small label items on a translucent
+ * floating surface. Selected item gets the accent (green) tint, unselected
+ * falls back to a neutral system gray — matching the iOS tab bar look instead
+ * of the Material3 indicator pill.
+ */
+@Composable
+private fun IosTabBar(
+    tabs: List<TabSpec>,
+    selectedTab: Int,
+    onSelect: (Int) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+            ),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+        ) {
+            tabs.forEachIndexed { index, tab ->
+                val selected = selectedTab == index
+                val label = stringResource(tab.labelRes)
+                val tint = if (selected) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                }
+                val iconSize by animateDpAsState(
+                    targetValue = if (selected) 26.dp else 24.dp,
+                    animationSpec = spring(dampingRatio = 0.5f, stiffness = 500f),
+                    label = "tab-icon-size",
+                )
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable(onClick = { onSelect(index) })
+                        .padding(vertical = 6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Icon(
+                        imageVector = tab.icon.imageVector,
+                        contentDescription = label,
+                        tint = tint,
+                        modifier = Modifier.size(iconSize),
+                    )
+                    Text(
+                        text = label,
+                        fontSize = 11.sp,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                        color = tint,
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
+    }
+}

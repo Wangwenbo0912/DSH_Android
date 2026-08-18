@@ -37,6 +37,58 @@ subprojects {
     }
 }
 
+// Root aggregation: merges JaCoCo coverage across all modules into one report so
+// CI has a project-wide number (android.yml checks build/reports/jacoco/jacoco.csv).
+// Run with: ./gradlew testDebugUnitTest jacocoTestReport
+tasks.register("jacocoTestReport", JacocoReport::class.java) {
+    // AGP produces the .exec files under outputs/unit_test_code_coverage/<variant>
+    // via create<Variant>UnitTestCoverageReport (which itself runs testDebugUnitTest).
+    // Depend on it when present so the merged report has real data; otherwise fall
+    // back to plain unit tests.
+    dependsOn(subprojects.flatMap { p ->
+        p.tasks.matching { it.name == "createDebugUnitTestCoverageReport" }
+    })
+    dependsOn(subprojects.map { "${it.path}:testDebugUnitTest" })
+
+    reports {
+        xml.required.set(true)
+        html.required.set(true)
+        csv.required.set(true)
+        csv.outputLocation.set(layout.buildDirectory.file("reports/jacoco/jacoco.csv"))
+        xml.outputLocation.set(layout.buildDirectory.file("reports/jacoco/jacoco.xml"))
+        html.outputLocation.set(layout.buildDirectory.dir("reports/jacoco/html"))
+    }
+
+    val execData = subprojects.map { p ->
+        fileTree(p.layout.buildDirectory.dir("outputs/unit_test_code_coverage/debugUnitTest")) {
+            include("*.exec")
+        }
+    }
+    executionData.setFrom(execData)
+
+    sourceDirectories.setFrom(
+        subprojects.map { p ->
+            p.files("src/main/java", "src/main/kotlin")
+        },
+    )
+
+    val kotlinClasses = subprojects.map { p ->
+        fileTree(p.layout.buildDirectory.dir("tmp/kotlin-classes/debug")) {
+            include("**/*.class")
+        }
+    }
+    val javaClasses = subprojects.map { p ->
+        fileTree(p.layout.buildDirectory.dir("intermediates/javac/debug/classes")) {
+            include("**/*.class")
+        }
+    }
+    classDirectories.setFrom(kotlinClasses + javaClasses)
+
+    onlyIf {
+        !executionData.files.isEmpty()
+    }
+}
+
 fun Project.configureAndroidJacoco(project: Project) {
     project.extensions.configure<com.android.build.gradle.BaseExtension>("android") {
         buildTypes {

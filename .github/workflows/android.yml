@@ -79,13 +79,13 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
-          path: build/reports/jacoco/
+          path: '**/build/reports/jacoco/'
 
       - name: Check coverage threshold
         if: always()
         run: |
           if [ -f build/reports/jacoco/jacoco.csv ]; then
-            COVERAGE=$(awk -F',' 'NR>1 {covered+=$8+$10; missed+=$9+$11} END {printf "%.1f", covered/(covered+missed)*100}' build/reports/jacoco/jacoco.csv)
+            COVERAGE=$(awk -F',' 'NR>1 {covered+=$9+$11; missed+=$8+$10} END {printf "%.1f", covered/(covered+missed)*100}' build/reports/jacoco/jacoco.csv)
             echo "Overall code coverage: ${COVERAGE}%"
             if (( $(echo "$COVERAGE < 30" | bc -l) )); then
               echo "::warning title=Low Coverage::Code coverage is ${COVERAGE}% — below 30% threshold."

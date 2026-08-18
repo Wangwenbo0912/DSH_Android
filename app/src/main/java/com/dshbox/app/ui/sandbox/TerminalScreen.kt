@@ -59,6 +59,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.dshbox.app.R
+import com.dshbox.app.ui.AppNavBarHeightDp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -117,11 +118,13 @@ fun TerminalScreen(
         try {
             val process = createSandboxShell(context)
             shellProcess.value = process
-            scope.launch(Dispatchers.IO) {
+            // Launch reader as a child of the LaunchedEffect scope so it is
+            // cancelled automatically when this composable leaves composition.
+            launch(Dispatchers.IO) {
                 try {
                     process.inputStream.bufferedReader(Charsets.UTF_8).forEachLine { line ->
                         if (line.startsWith("WARNING: linker:")) return@forEachLine
-                        scope.launch(Dispatchers.Main) {
+                        launch(Dispatchers.Main) {
                             appendOutput("$line\n")
                         }
                     }
@@ -247,7 +250,7 @@ fun TerminalScreen(
     // area ends at the keyboard top, so the coerceAtLeast(0) keeps the
     // padding at zero there.)
     val keyboardInsetDp = with(density) {
-        (WindowInsets.ime.getBottom(density) - 80.dp.roundToPx())
+        (WindowInsets.ime.getBottom(density) - AppNavBarHeightDp.roundToPx())
             .coerceAtLeast(0)
             .toDp()
     }

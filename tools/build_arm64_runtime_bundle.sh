@@ -14,6 +14,7 @@
 # Usage:
 #   tools/build_arm64_runtime_bundle.sh [suite] [arch]
 set -euo pipefail
+set -x  # trace commands for CI debugging
 
 SUITE="${1:-trixie}"
 ARCH="${2:-arm64}"

@@ -18,7 +18,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-BUNDLE="${1:-$ROOT_DIR/dist/dshapp-runtime-debian-arm64-rootfs-fixed-0.1.0.tar.gz}"
+BUNDLE="${1:-$ROOT_DIR/dist/dshapp-runtime-debian-arm64-rootfs.tar.gz}"
 VARIANT="${2:-release}"
 ASSETS_DIR="$ROOT_DIR/app/src/main/assets/runtime"
 

@@ -188,6 +188,7 @@ class SandboxBridgeApi(
                 )
             } else {
                 process.destroyForcibly()
+                process.waitFor(2_000L, TimeUnit.MILLISECONDS)
                 CommandResult(
                     exitCode = null,
                     stdout = stdoutBuilder.toString().trimEnd('\n'),
@@ -211,6 +212,10 @@ class SandboxBridgeApi(
     override suspend fun listProcesses(): List<Long> = emptyList()
 
     override suspend fun killProcess(processId: Long) = withContext(Dispatchers.IO) {
+        if (processId <= 0L) {
+            Log.w(TAG, "killProcess($processId): invalid PID, refusing to execute kill")
+            return@withContext
+        }
         try {
             ProcessBuilder("/system/bin/kill", "-KILL", processId.toString()).start().waitFor()
         } catch (t: Throwable) {
@@ -305,20 +310,19 @@ class SandboxBridgeApi(
     private fun shellEscape(s: String): String = "'${s.replace("'", "'\\''")}'"
 
     /**
-     * Returns the OS PID of a running [Process]. Uses Java 9+ [Process.pid]
-     * when available (API 30+); falls back to reflection on API 29.
+     * Returns the OS PID of a running [Process]. Tries the reflectively-accessible
+     * [getPid] method first (available on most Android API 30+ builds), then
+     * falls back to reading the internal `pid` field. Returns -1 on failure.
      */
     private fun getProcessPid(process: Process): Long {
-        // Android's java.lang.Process does not have pid() from Java 9+;
-        // use reflection to access the internal pid field.
         return try {
-            val pidField = process.javaClass.getDeclaredField("pid")
-            pidField.isAccessible = true
-            pidField.getLong(process)
-        } catch (_: Exception) {
+            val m = process.javaClass.getMethod("getPid")
+            (m.invoke(process) as? Int)?.toLong() ?: -1L
+        } catch (_: NoSuchMethodException) {
             try {
-                val m = process.javaClass.getMethod("getPid")
-                (m.invoke(process) as? Int)?.toLong() ?: -1L
+                val pidField = process.javaClass.getDeclaredField("pid")
+                pidField.isAccessible = true
+                pidField.getLong(process)
             } catch (_: Exception) {
                 -1L
             }

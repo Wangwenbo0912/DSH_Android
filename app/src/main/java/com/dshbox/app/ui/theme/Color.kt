@@ -35,3 +35,17 @@ val LightAccentContainer = Color(0xFFD9F0E9)
 val LightAccentContainerText = Color(0xFF0B6B52)
 val DarkAccentContainer = Color(0xFF123B31)
 val DarkAccentContainerText = Color(0xFF7FD9BC)
+
+// iOS-style grouped-background and systemGray tokens.
+// iOS grouped lists float white cards on a light-gray canvas.
+val LightGroupedBackground = Color(0xFFF2F2F7) // iOS systemGroupedBackground
+val LightCard = Color(0xFFFFFFFF)              // iOS secondarySystemGroupedBackground
+val LightSystemGray = Color(0xFF8E8E93)        // iOS systemGray
+val LightSystemGray2 = Color(0xFFAEAEB2)       // iOS systemGray2
+val LightSystemGray5 = Color(0xFFE5E5EA)       // iOS systemGray5 (fill)
+
+val DarkGroupedBackground = Color(0xFF000000)  // iOS systemGroupedBackground (dark)
+val DarkCard = Color(0xFF1C1C1E)               // iOS secondarySystemGroupedBackground (dark)
+val DarkSystemGray = Color(0xFF8E8E93)
+val DarkSystemGray2 = Color(0xFF636366)
+val DarkSystemGray5 = Color(0xFF2C2C2E)        // iOS systemGray5 (dark fill)

@@ -2,6 +2,7 @@ package com.dshbox.app.ui.settings
 
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -42,6 +43,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -87,6 +89,36 @@ fun ModelConfigScreen(
 
     BackHandler(onBack = onBack)
 
+    fun performSave(restart: Boolean) {
+        if (apiKey.isBlank()) {
+            Toast.makeText(context, R.string.model_config_key_required, Toast.LENGTH_SHORT).show()
+            return
+        }
+        saving = true
+        scope.launch {
+            val result = configWriter.writeModelConfig(
+                preset = selectedPreset,
+                apiKey = apiKey.trim(),
+                setAsDefault = setAsDefault,
+            )
+            when (result) {
+                is AppResult.Success -> {
+                    configStatus = configWriter.readConfigStatus()
+                    Toast.makeText(context, R.string.model_config_save_success, Toast.LENGTH_SHORT).show()
+                    if (restart) SandboxService.restart(context)
+                }
+                is AppResult.Failure -> {
+                    Toast.makeText(
+                        context,
+                        context.getString(R.string.model_config_save_failed, result.error.message),
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+            }
+            saving = false
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -102,148 +134,116 @@ fun ModelConfigScreen(
         Column(
             modifier = modifier
                 .fillMaxSize()
+                .background(MaterialTheme.colorScheme.surfaceContainerLow)
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
-                .padding(24.dp),
+                .padding(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
-            // ── Provider dropdown ────────────────────────────────────────────
-            ProviderDropdown(
-                value = selectedPreset,
-                options = ProviderPreset.entries.toList(),
-                label = { stringResource(R.string.model_config_provider) },
-                display = { it.displayName },
-                onSelect = { preset ->
-                    selectedPreset = preset
-                    selectedModel = preset.models.first()
-                    baseUrl = preset.baseURL
-                },
-            )
+            // ── Form card: provider, model, api key, base url, set default ──
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .shadow(2.dp, MaterialTheme.shapes.large),
+                shape = MaterialTheme.shapes.large,
+                color = MaterialTheme.colorScheme.surface,
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    ProviderDropdown(
+                        value = selectedPreset,
+                        options = ProviderPreset.entries.toList(),
+                        label = { stringResource(R.string.model_config_provider) },
+                        display = { it.displayName },
+                        onSelect = { preset ->
+                            selectedPreset = preset
+                            selectedModel = preset.models.first()
+                            baseUrl = preset.baseURL
+                        },
+                    )
 
-            // ── Model dropdown (linked to provider) ─────────────────────────
-            ModelDropdown(
-                value = selectedModel,
-                options = selectedPreset.models,
-                label = { stringResource(R.string.model_config_model) },
-                display = { it.name },
-                onSelect = { selectedModel = it },
-            )
+                    ModelDropdown(
+                        value = selectedModel,
+                        options = selectedPreset.models,
+                        label = { stringResource(R.string.model_config_model) },
+                        display = { it.name },
+                        onSelect = { selectedModel = it },
+                    )
 
-            // ── API Key field ───────────────────────────────────────────────
-            OutlinedTextField(
-                value = apiKey,
-                onValueChange = { apiKey = it },
-                label = { Text(stringResource(R.string.model_config_api_key)) },
-                placeholder = { Text("sk-...") },
-                singleLine = true,
-                visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
-                trailingIcon = {
-                    IconButton(onClick = { showKey = !showKey }) {
-                        Icon(
-                            imageVector = if (showKey) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                            contentDescription = stringResource(
-                                if (showKey) R.string.model_config_hide_key else R.string.model_config_show_key,
-                            ),
+                    OutlinedTextField(
+                        value = apiKey,
+                        onValueChange = { apiKey = it },
+                        label = { Text(stringResource(R.string.model_config_api_key)) },
+                        placeholder = { Text("sk-...") },
+                        singleLine = true,
+                        visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { showKey = !showKey }) {
+                                Icon(
+                                    imageVector = if (showKey) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                    contentDescription = stringResource(
+                                        if (showKey) R.string.model_config_hide_key else R.string.model_config_show_key,
+                                    ),
+                                )
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+
+                    OutlinedTextField(
+                        value = baseUrl,
+                        onValueChange = { baseUrl = it },
+                        label = { Text(stringResource(R.string.model_config_base_url)) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.model_config_set_default),
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Switch(
+                            checked = setAsDefault,
+                            onCheckedChange = { setAsDefault = it },
                         )
                     }
-                },
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            // ── Base URL field ──────────────────────────────────────────────
-            OutlinedTextField(
-                value = baseUrl,
-                onValueChange = { baseUrl = it },
-                label = { Text(stringResource(R.string.model_config_base_url)) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            // ── Set as default switch ────────────────────────────────────────
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = stringResource(R.string.model_config_set_default),
-                    style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.weight(1f),
-                )
-                Switch(
-                    checked = setAsDefault,
-                    onCheckedChange = { setAsDefault = it },
-                )
+                }
             }
 
-            // ── Actions ──────────────────────────────────────────────────────
-            Button(
-                onClick = {
-                    if (apiKey.isBlank()) {
-                        Toast.makeText(context, R.string.model_config_key_required, Toast.LENGTH_SHORT).show()
-                        return@Button
-                    }
-                    saving = true
-                    scope.launch {
-                        val result = configWriter.writeModelConfig(
-                            preset = selectedPreset,
-                            apiKey = apiKey.trim(),
-                            setAsDefault = setAsDefault,
-                        )
-                        when (result) {
-                            is AppResult.Success -> {
-                                configStatus = configWriter.readConfigStatus()
-                                Toast.makeText(context, R.string.model_config_save_success, Toast.LENGTH_SHORT).show()
-                                SandboxService.restart(context)
-                            }
-                            is AppResult.Failure -> {
-                                Toast.makeText(
-                                    context,
-                                    context.getString(R.string.model_config_save_failed, result.error.message),
-                                    Toast.LENGTH_LONG,
-                                ).show()
-                            }
-                        }
-                        saving = false
-                    }
-                },
-                enabled = !saving,
-                modifier = Modifier.fillMaxWidth().height(48.dp),
+            // ── Actions card: save buttons ──────────────────────────────────
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .shadow(2.dp, MaterialTheme.shapes.large),
+                shape = MaterialTheme.shapes.large,
+                color = MaterialTheme.colorScheme.surface,
             ) {
-                Text(stringResource(R.string.model_config_save_restart))
-            }
-            OutlinedButton(
-                onClick = {
-                    if (apiKey.isBlank()) {
-                        Toast.makeText(context, R.string.model_config_key_required, Toast.LENGTH_SHORT).show()
-                        return@OutlinedButton
+                Column(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Button(
+                        onClick = { performSave(restart = true) },
+                        enabled = !saving,
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                    ) {
+                        Text(stringResource(R.string.model_config_save_restart))
                     }
-                    saving = true
-                    scope.launch {
-                        val result = configWriter.writeModelConfig(
-                            preset = selectedPreset,
-                            apiKey = apiKey.trim(),
-                            setAsDefault = setAsDefault,
-                        )
-                        when (result) {
-                            is AppResult.Success -> {
-                                configStatus = configWriter.readConfigStatus()
-                                Toast.makeText(context, R.string.model_config_save_success, Toast.LENGTH_SHORT).show()
-                            }
-                            is AppResult.Failure -> {
-                                Toast.makeText(
-                                    context,
-                                    context.getString(R.string.model_config_save_failed, result.error.message),
-                                    Toast.LENGTH_LONG,
-                                ).show()
-                            }
-                        }
-                        saving = false
+                    OutlinedButton(
+                        onClick = { performSave(restart = false) },
+                        enabled = !saving,
+                        modifier = Modifier.fillMaxWidth().height(44.dp),
+                    ) {
+                        Text(stringResource(R.string.model_config_save_only))
                     }
-                },
-                enabled = !saving,
-                modifier = Modifier.fillMaxWidth().height(44.dp),
-            ) {
-                Text(stringResource(R.string.model_config_save_only))
+                }
             }
 
             // ── Current config status card ───────────────────────────────────
@@ -326,9 +326,10 @@ private fun ModelDropdown(
 private fun ConfigStatusCard(status: DshConfigStatus?) {
     Surface(
         modifier = Modifier
-            .fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceVariant,
+            .fillMaxWidth()
+            .shadow(2.dp, MaterialTheme.shapes.large),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surface,
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(

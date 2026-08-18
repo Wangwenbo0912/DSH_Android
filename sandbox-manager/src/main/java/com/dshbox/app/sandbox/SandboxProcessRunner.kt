@@ -1,4 +1,4 @@
-﻿package com.dshbox.app.sandbox
+package com.dshbox.app.sandbox
 
 import com.dshbox.app.common.LogRedactor
 import java.io.File
@@ -295,7 +295,15 @@ class SandboxProcessRunner(
     private fun killPid(pid: Int) = signalPid(pid, "KILL")
 
     fun killAll(prefix: String) {
-        // TODO(phase-1): only as a last-resort fallback; prefer tracking child
-        // process groups explicitly and terminating them in reverse order.
+        val dir = File("/proc")
+        val entries = dir.listFiles { f -> f.name.all { it.isDigit() } } ?: return
+        for (entry in entries) {
+            val pid = entry.name.toIntOrNull() ?: continue
+            val cmdline = readCmdline(pid) ?: continue
+            if (cmdline.contains(prefix)) {
+                Log.w(TAG, "killAll: killing $pid (cmdline contains '$prefix')")
+                signalPid(pid, "KILL")
+            }
+        }
     }
 }

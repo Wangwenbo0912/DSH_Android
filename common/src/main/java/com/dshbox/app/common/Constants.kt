@@ -69,12 +69,14 @@ object Constants {
     fun applyIntentExtras(intent: Intent?) {
         if (intent == null) return
         intent.getStringExtra(EXTRA_DSH_HOST)?.let { dshHost = it }
-        intent.getIntExtra(EXTRA_DSH_PORT, dshPort).let { dshPort = it }
+        intent.getIntExtra(EXTRA_DSH_PORT, dshPort).let {
+            if (it in 1..65535) dshPort = it
+        }
         intent.getLongExtra(EXTRA_HEALTHCHECK_TIMEOUT, healthCheckTimeoutMs).let {
-            healthCheckTimeoutMs = it
+            if (it > 0) healthCheckTimeoutMs = it
         }
         intent.getLongExtra(EXTRA_DSH_READY_TIMEOUT, dshReadyTimeoutMs).let {
-            dshReadyTimeoutMs = it
+            if (it > 0) dshReadyTimeoutMs = it
         }
     }
 

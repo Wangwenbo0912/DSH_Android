@@ -11,6 +11,7 @@ import org.yaml.snakeyaml.Yaml
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileWriter
+import java.io.IOException
 
 /**
  * Writes DSH LLM provider configuration into the sandbox guest filesystem.
@@ -144,7 +145,11 @@ class DshConfigWriter(
         // Atomic write: .tmp → rename
         val tmpFile = File(dshDir, "settings.yaml.tmp")
         FileWriter(tmpFile).use { yaml.dump(existing, it) }
-        tmpFile.renameTo(settingsFile)
+        if (!tmpFile.renameTo(settingsFile)) {
+            throw IOException(
+                "atomic rename failed: ${tmpFile.absolutePath} -> ${settingsFile.absolutePath}",
+            )
+        }
         Log.i(TAG, "settings.yaml written (default=$setAsDefault)")
     }
 
@@ -200,7 +205,11 @@ class DshConfigWriter(
         // Atomic write
         val tmpFile = File(dshDir, ".credentials.yaml.tmp")
         FileWriter(tmpFile).use { yaml.dump(existing, it) }
-        tmpFile.renameTo(credentialsFile)
+        if (!tmpFile.renameTo(credentialsFile)) {
+            throw IOException(
+                "atomic rename failed: ${tmpFile.absolutePath} -> ${credentialsFile.absolutePath}",
+            )
+        }
 
         // Set file permissions: 0600 (owner-only)
         credentialsFile.setReadable(true, true)

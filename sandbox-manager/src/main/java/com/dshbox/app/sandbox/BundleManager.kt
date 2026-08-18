@@ -63,7 +63,7 @@ class BundleManager(
             // extraction instead of being widened to 666.
             target.setReadable((mode and 0x100) != 0, true)
             target.setWritable((mode and 0x80) != 0, true)
-            target.setExecutable((mode and 0x49) != 0, true)
+            target.setExecutable((mode and 0x40) != 0, true)
         } catch (_: Exception) {
             // Mode preservation is best-effort; the caller may still read the file.
         }

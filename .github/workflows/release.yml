@@ -44,7 +44,8 @@ jobs:
       - name: Persist bundle
         id: pack
         run: |
-          BUNDLE=$(ls build/dshapp-runtime-debian-*.tar.gz | head -1)
+          BUNDLE=build/dshapp-runtime-debian-arm64-rootfs.tar.gz
+          [ -f "$BUNDLE" ] || { echo "bundle not found: $BUNDLE (did build_arm64_runtime_bundle.sh produce it?)" >&2; exit 1; }
           echo "bundle path: $BUNDLE"
           SHA256=$(sha256sum "$BUNDLE" | awk '{print $1}')
           NAME=$(basename "$BUNDLE")
@@ -126,7 +127,7 @@ jobs:
         env:
           GRADLE_USER_HOME: ${{ runner.temp }}/gradle-home
         run: |
-          BUNDLE=$(ls dist/dshapp-runtime-debian-*.tar.gz | head -1)
+          BUNDLE=dist/dshapp-runtime-debian-arm64-rootfs.tar.gz
           tools/build_apk.sh "$BUNDLE" release
 
       - name: Verify APK

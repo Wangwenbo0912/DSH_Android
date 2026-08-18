@@ -19,5 +19,5 @@ common/build/
 keystore.properties
 dist/
 .gradle-home/
-.kotlin/errors/
+.kotlin/
 app/src/main/assets/runtime/

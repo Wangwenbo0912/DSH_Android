@@ -42,9 +42,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.dshbox.app.BuildConfig
 import com.dshbox.app.R
@@ -71,10 +73,19 @@ fun HomeScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
+            .background(MaterialTheme.colorScheme.surfaceContainerLow)
             .verticalScroll(rememberScrollState())
-            .padding(24.dp),
+            .padding(horizontal = 20.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+        // iOS large-title header
+        Text(
+            text = stringResource(R.string.app_name),
+            style = MaterialTheme.typography.displayLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+        )
+
         if (!runtimeInstalled) {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
@@ -243,21 +254,15 @@ private fun StatusCard(
     }
 
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(3.dp, MaterialTheme.shapes.large),
         shape = MaterialTheme.shapes.large,
         color = when {
             sandboxReady -> MaterialTheme.colorScheme.surface
             sandboxError -> MaterialTheme.colorScheme.errorContainer
             else -> MaterialTheme.colorScheme.surfaceVariant
         },
-        border = BorderStroke(
-            1.dp,
-            when {
-                sandboxReady -> MaterialTheme.colorScheme.outlineVariant
-                sandboxError -> MaterialTheme.colorScheme.error
-                else -> MaterialTheme.colorScheme.outlineVariant
-            },
-        ),
     ) {
         Row(
             modifier = Modifier.padding(20.dp),
@@ -329,9 +334,11 @@ private fun AddressCard(context: Context) {
     var copied by rememberSaveable { mutableStateOf(false) }
 
     Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceVariant,
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(2.dp, MaterialTheme.shapes.large),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surface,
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
