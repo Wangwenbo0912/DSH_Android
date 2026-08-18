@@ -17,7 +17,8 @@ class DeviceProfileTest {
         )
         assertEquals(PerformanceTier.HIGH, profile(12f).tier)
         assertEquals(PerformanceTier.STANDARD, profile(8f).tier)
-        assertEquals(PerformanceTier.LIGHT, profile(6f).tier)
+        assertEquals(PerformanceTier.LIMITED, profile(6f).tier)
+        assertEquals(PerformanceTier.LIGHT, profile(4f).tier)
         assertEquals(PerformanceTier.UNSUPPORTED, profile(3f).tier)
     }
 }
