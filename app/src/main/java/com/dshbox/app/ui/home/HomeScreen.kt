@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -33,6 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,8 +47,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.dshbox.app.BuildConfig
+import com.dshbox.app.DshApp
 import com.dshbox.app.R
 import com.dshbox.app.common.Constants
 import com.dshbox.app.service.SandboxService
@@ -65,9 +69,14 @@ fun HomeScreen(
     bundledRuntimeAvailable: Boolean,
     onNavigateToSettings: () -> Unit,
     onOpenWebUI: () -> Unit,
+    onOpenWorkspacePicker: () -> Unit = {},
 ) {
     val context = LocalContext.current
     var showStopDialog by remember { mutableStateOf(false) }
+
+    // Observe the persisted workspace selection so the home card stays in sync.
+    val app = LocalContext.current.applicationContext as DshApp
+    val currentWorkspace by app.container.workspaceManager.currentWorkspacePath.collectAsState()
 
     Column(
         modifier = modifier
@@ -134,16 +143,46 @@ fun HomeScreen(
             onViewDiagnostics = onNavigateToSettings,
         )
         AddressCard(context = context)
-        Spacer(modifier = Modifier.height(8.dp))
-        Button(
-            shape = MaterialTheme.shapes.medium,
-            onClick = onOpenWebUI,
-            enabled = sandboxReady,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(52.dp),
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(stringResource(R.string.home_open))
+            Button(
+                shape = MaterialTheme.shapes.medium,
+                onClick = onOpenWebUI,
+                enabled = sandboxReady,
+                modifier = Modifier
+                    .weight(2f)
+                    .height(52.dp),
+            ) {
+                Text(stringResource(R.string.home_open))
+            }
+            OutlinedButton(
+                shape = MaterialTheme.shapes.medium,
+                onClick = onOpenWorkspacePicker,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(52.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Folder,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("工作区")
+            }
+        }
+        currentWorkspace?.let { ws ->
+            Text(
+                text = ws,
+                style = MaterialTheme.typography.bodySmall,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
         Row(
             horizontalArrangement = Arrangement.spacedBy(12.dp),

@@ -14,6 +14,7 @@ import com.dshbox.app.config.DshConfigWriter
 import com.dshbox.app.sandbox.DefaultSandboxManager
 import com.dshbox.app.sandbox.SandboxConfig
 import com.dshbox.app.sandbox.SandboxProcessRunner
+import com.dshbox.app.workspace.WorkspaceManager
 import java.security.SecureRandom
 
 /**
@@ -46,7 +47,10 @@ object ServiceLocator {
         // DSH config writer for GLM-5.2 / DeepSeek-V4-Flash provider settings.
         val dshConfigWriter = DshConfigWriter(sandboxConfig.userDataDir)
 
-        return AppContainer(context, sandboxConfig, sandboxManager, bridgeRouter, dshConfigWriter)
+        // Persistent workspace picker state.
+        val workspaceManager = WorkspaceManager(context)
+
+        return AppContainer(context, sandboxConfig, sandboxManager, bridgeRouter, dshConfigWriter, workspaceManager)
     }
 
     /**

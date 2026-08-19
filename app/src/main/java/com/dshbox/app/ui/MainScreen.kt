@@ -63,6 +63,7 @@ import com.dshbox.app.ui.sandbox.SandboxScreen
 import com.dshbox.app.ui.settings.SettingsScreen
 import com.dshbox.app.ui.theme.AppIcons
 import com.dshbox.app.ui.web.WebViewScreen
+import com.dshbox.app.ui.workspace.WorkspacePickerScreen
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 
@@ -91,6 +92,8 @@ fun MainScreen() {
     var sandboxError by remember { mutableIntStateOf(0) } // 0/1
     var sandboxStopped by remember { mutableIntStateOf(0) } // 0/1
     var showLaunch by remember { mutableStateOf(true) }
+    // Native workspace picker overlay: opened from Home or the WebView toolbar.
+    var showWorkspacePicker by remember { mutableStateOf(false) }
     var runtimeInstalled by remember { mutableStateOf(sandboxManager.isRuntimeInstalled()) }
     val bundledRuntimeAvailable = remember {
         BundledRuntimeInstaller(app, app.container.sandboxConfig).hasBundledBundle()
@@ -198,6 +201,7 @@ fun MainScreen() {
                     bundledRuntimeAvailable = bundledRuntimeAvailable,
                     onNavigateToSettings = { selectedTab = 3 },
                     onOpenWebUI = { selectedTab = 4 },
+                    onOpenWorkspacePicker = { showWorkspacePicker = true },
                 )
             }
         }
@@ -206,6 +210,14 @@ fun MainScreen() {
             LaunchScreen(
                 runtimeInstalled = runtimeInstalled,
                 bundledRuntimeAvailable = bundledRuntimeAvailable,
+            )
+        }
+
+        // Native workspace picker: covers the whole UI, opened from Home or the
+        // WebView toolbar. Composed last so it renders above everything.
+        if (showWorkspacePicker) {
+            WorkspacePickerScreen(
+                onClose = { showWorkspacePicker = false },
             )
         }
     }
@@ -221,6 +233,7 @@ private fun TabContent(
     bundledRuntimeAvailable: Boolean,
     onNavigateToSettings: () -> Unit,
     onOpenWebUI: () -> Unit,
+    onOpenWorkspacePicker: () -> Unit,
 ) {
     // Lazy creation: only create the WebView when the user first switches to
     // the Web tab. After that, it stays composed (keep alive) so the DSH SPA
@@ -244,6 +257,7 @@ private fun TabContent(
                 bundledRuntimeAvailable = bundledRuntimeAvailable,
                 onNavigateToSettings = onNavigateToSettings,
                 onOpenWebUI = onOpenWebUI,
+                onOpenWorkspacePicker = onOpenWorkspacePicker,
             )
         }
         AnimatedTab(visible = selectedTab == 1, zIndex = if (selectedTab == 1) 1f else 0f) {
@@ -271,6 +285,7 @@ private fun TabContent(
                 val app = LocalContext.current.applicationContext as DshApp
                 WebViewScreen(
                     bridgeRouter = app.container.bridgeRouter,
+                    onOpenWorkspacePicker = onOpenWorkspacePicker,
                 )
             }
         }

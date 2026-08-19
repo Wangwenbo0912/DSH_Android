@@ -64,6 +64,9 @@ android {
         compose = true
         buildConfig = true
     }
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
@@ -91,6 +94,10 @@ dependencies {
     implementation(libs.snakeyaml)
 
     testImplementation(libs.junit)
+    // Real org.json for JVM unit tests (DshWorkspaceStorage tests the DSH
+    // workspace.json format without requiring the Android runtime).
+    testImplementation("org.json:json:20240303")
+    testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

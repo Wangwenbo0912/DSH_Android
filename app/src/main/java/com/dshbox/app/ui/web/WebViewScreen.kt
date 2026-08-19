@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -77,6 +78,7 @@ import com.dshbox.app.common.Constants
 @Composable
 fun WebViewScreen(
     bridgeRouter: BridgeRouter,
+    onOpenWorkspacePicker: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -117,6 +119,7 @@ fun WebViewScreen(
             onBack = { webView.goBack() },
             onForward = { webView.goForward() },
             onRefresh = { webView.reload() },
+            onOpenWorkspacePicker = onOpenWorkspacePicker,
             addressText = addressText,
             onAddressTextChange = { addressText = it },
             onAddressSubmit = {
@@ -167,6 +170,10 @@ fun WebViewScreen(
                             // later navigation to an external page never gets it.
                             if (url != null && isDshWebUiOrigin(url)) {
                                 view.evaluateJavascript(DshJsBridge.injectionScript(bridgeRouter.token), null)
+                                // Mobile CSS: make the desktop DSH UI usable on a
+                                // phone screen (full-width layout, hidden sidebar,
+                                // touch-friendly tap targets, full-screen dialogs).
+                                view.evaluateJavascript(injectMobileCss(), null)
                             }
                         }
 
@@ -241,6 +248,7 @@ private fun WebToolbar(
     onBack: () -> Unit,
     onForward: () -> Unit,
     onRefresh: () -> Unit,
+    onOpenWorkspacePicker: () -> Unit,
     addressText: String,
     onAddressTextChange: (String) -> Unit,
     onAddressSubmit: () -> Unit,
@@ -326,6 +334,15 @@ private fun WebToolbar(
                     tint = MaterialTheme.colorScheme.onSurface,
                 )
             }
+            IconButton(
+                onClick = onOpenWorkspacePicker,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Folder,
+                    contentDescription = stringResource(R.string.workspace_title),
+                    tint = MaterialTheme.colorScheme.onSurface,
+                )
+            }
         }
     }
 }
@@ -369,6 +386,62 @@ private class DshJsBridge(
         return if (isDshWebUiOrigin(url)) bridgeRouter.token else ""
     }
 }
+
+/**
+ * Returns a JS snippet that injects mobile-friendly CSS into the DSH WebUI page.
+ *
+ * Rules:
+ * - Main/center containers fill the full viewport width; sidebars and details are
+ *   hidden so the core content uses the whole screen.
+ * - All interactive elements (buttons, links, inputs, tabbable items) get at least
+ *   44px min-height per Material Design touch-target guidelines.
+ * - Input, textarea, select get 16px font-size (prevents iOS auto-zoom) and 12px
+ *   padding.
+ * - Dialogs and modals become full-screen overlays (no rounded corners, no margin).
+ * - Body text gets 16px base font-size and 1.5 line-height for readability.
+ */
+private fun injectMobileCss(): String = """
+(function() {
+  var s = document.createElement('style');
+  s.textContent = `
+    [class*="center"], [class*="main"] {
+      width: 100vw !important;
+      max-width: 100vw !important;
+      min-width: 100vw !important;
+    }
+    [class*="sidebar"] {
+      display: none !important;
+    }
+    [class*="details"] {
+      display: none !important;
+    }
+    button, a, [role="button"], input, select, textarea, [tabindex] {
+      min-height: 44px !important;
+      font-size: 16px !important;
+    }
+    input, textarea, select {
+      font-size: 16px !important;
+      padding: 12px !important;
+    }
+    [role="dialog"], [class*="modal"], [class*="dialog"] {
+      position: fixed !important;
+      top: 0 !important;
+      left: 0 !important;
+      width: 100vw !important;
+      height: 100vh !important;
+      max-width: 100vw !important;
+      max-height: 100vh !important;
+      margin: 0 !important;
+      border-radius: 0 !important;
+    }
+    body, p, span, div, li {
+      font-size: 16px !important;
+      line-height: 1.5 !important;
+    }
+  `;
+  document.head.appendChild(s);
+})();
+""".trimIndent()
 
 /** True when [url] is served by the real DSH WebUI (loopback + DSH port). */
 private fun isDshWebUiOrigin(url: String): Boolean {

@@ -5,6 +5,7 @@ import com.dshbox.app.bridge.BridgeRouter
 import com.dshbox.app.config.DshConfigWriter
 import com.dshbox.app.sandbox.SandboxConfig
 import com.dshbox.app.sandbox.SandboxManager
+import com.dshbox.app.workspace.WorkspaceManager
 
 /**
  * Minimal manual DI container. Replaced by Hilt only if the project grows.
@@ -15,4 +16,5 @@ class AppContainer(
     val sandboxManager: SandboxManager,
     val bridgeRouter: BridgeRouter,
     val dshConfigWriter: DshConfigWriter,
+    val workspaceManager: WorkspaceManager,
 )
