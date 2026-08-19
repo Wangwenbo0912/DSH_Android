@@ -236,6 +236,63 @@ class DefaultSandboxManagerTest {
         assertEquals(SandboxState.ERROR, manager.state.value)
     }
 
+    @Test
+    fun `health loop auto-restarts once after a post-ready failure and bounds via supervisor cap`() = runTest {
+        // Sequence: ready, fail, then three consecutive failures (supervisor cap).
+        // L1: ready → fail → budget=1 → auto-restart
+        // L2 (pre-ready): fail × 3 → supervisor ERROR → state=ERROR
+        val healthChecker = ScriptedHealthChecker(true, false, false, false, false)
+        val manager = newManager(healthChecker = healthChecker)
+        manager.initialize()
+        mockSuccessfulLaunch()
+
+        manager.start()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(SandboxState.ERROR, manager.state.value)
+        // 1 initial start + 1 auto-restart
+        verify(exactly = 2) { processRunner.start(any(), any(), any(), any()) }
+        verify(exactly = 1) { processRunner.stop(any()) }
+    }
+
+    @Test
+    fun `health loop bounds flapping post-ready cycles and enters ERROR`() = runTest {
+        // Sequence: ready, fail, ready, fail, ready, fail → budget 1,2,3 → ERROR
+        val healthChecker = ScriptedHealthChecker(true, false, true, false, true, false)
+        val manager = newManager(healthChecker = healthChecker)
+        manager.initialize()
+        mockSuccessfulLaunch()
+
+        manager.start()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(SandboxState.ERROR, manager.state.value)
+        // 1 initial + 2 auto-restarts (third failure hits cap, no restart)
+        verify(exactly = 3) { processRunner.start(any(), any(), any(), any()) }
+        verify(exactly = 2) { processRunner.stop(any()) }
+    }
+
+    @Test
+    fun `health loop auto-restarts after a post-ready failure then recovers`() = runTest {
+        // Sequence: ready, fail, ready, ready, fail, fail, fail (supervisor cap)
+        // L1: ready → fail → budget=1 → auto-restart
+        // L2: ready → ready → fail → budget=2 → auto-restart
+        // L3 (pre-ready): fail × 3 → supervisor ERROR
+        // This proves two bounded auto-restarts occurred with recovery in between.
+        val healthChecker = ScriptedHealthChecker(true, false, true, true, false, false, false)
+        val manager = newManager(healthChecker = healthChecker)
+        manager.initialize()
+        mockSuccessfulLaunch()
+
+        manager.start()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(SandboxState.ERROR, manager.state.value)
+        // 1 initial + 2 auto-restarts
+        verify(exactly = 3) { processRunner.start(any(), any(), any(), any()) }
+        verify(exactly = 2) { processRunner.stop(any()) }
+    }
+
     // ─── Error Handling ────────────────────────────────────────────────────────
 
     @Test
@@ -411,6 +468,31 @@ class DefaultSandboxManagerTest {
 
         companion object {
             fun neverReady(): FakeHealthChecker = FakeHealthChecker(readyAfterChecks = Int.MAX_VALUE)
+        }
+    }
+
+    /**
+     * Scripted [SandboxHealthChecker]. Returns `ready` for [script] in order,
+     * then repeats the last element for every further check. Useful for
+     * deterministic crash-loop / flap scenarios that must terminate in ERROR.
+     */
+    private class ScriptedHealthChecker(vararg script: Boolean) : SandboxHealthChecker {
+        private val script: List<Boolean> = script.toList()
+        private val lock = Object()
+        private var index = 0
+
+        override suspend fun check(): SandboxHealth {
+            val ready = synchronized(lock) {
+                val value = script.getOrElse(index) { script.last() }
+                index++
+                value
+            }
+            return SandboxHealth(
+                sandboxState = if (ready) SandboxState.READY else SandboxState.RUNNING,
+                dshProcessRunning = true,
+                portOpen = ready,
+                webUiReady = ready,
+            )
         }
     }
 }

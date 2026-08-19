@@ -24,6 +24,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Real BridgeApi implementation that maps guest-sandbox operations to the
@@ -57,7 +58,11 @@ class SandboxBridgeApi(
         private const val NOTIFICATION_ID_BASE = 9001
     }
 
-    private var notificationIdSeq = NOTIFICATION_ID_BASE
+    // Thread-safe: showNotification() dispatches to Dispatchers.IO and may be
+    // called concurrently; a plain Int post-increment is a read-modify-write
+    // race that could hand out duplicate IDs (one notification silently
+    // replacing another).
+    private val notificationIdSeq = AtomicInteger(NOTIFICATION_ID_BASE)
 
     // ── Workspace ─────────────────────────────────────────────────────────────
 
@@ -238,12 +243,12 @@ class SandboxBridgeApi(
     }
 
     override suspend fun killProcess(processId: Long) = withContext(Dispatchers.IO) {
-        if (processId <= 0L) {
-            Log.w(TAG, "killProcess($processId): invalid PID, refusing to execute kill")
+        val myPid = android.os.Process.myPid()
+        if (processId <= 0L || processId.toInt() == myPid) {
+            Log.w(TAG, "killProcess($processId): invalid or self PID, refusing to execute kill")
             return@withContext
         }
         // Safety: only allow killing PIDs inside the sandbox process tree.
-        val myPid = android.os.Process.myPid()
         if (!isDescendantOf(processId.toInt(), myPid)) {
             Log.w(TAG, "killProcess($processId): not a sandbox process, refusing")
             return@withContext
@@ -274,7 +279,7 @@ class SandboxBridgeApi(
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
             .build()
-        NotificationManagerCompat.from(context).notify(notificationIdSeq++, notification)
+        NotificationManagerCompat.from(context).notify(notificationIdSeq.getAndIncrement(), notification)
     }
 
     override suspend fun clipboardRead(): String = withContext(Dispatchers.Main) {

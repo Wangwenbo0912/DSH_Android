@@ -39,6 +39,14 @@ class DefaultSandboxManager(
     private var healthLoopJob: Job? = null
     private var runningProcess: SandboxProcessRunner.RunningProcess? = null
 
+    /**
+     * Crash-loop budget: counts auto-restarts triggered by a post-ready health
+     * failure. Reset on explicit start/restart/recover, but preserved across
+     * health-loop auto-restarts so a flapping DSH cannot restart forever — the
+     * loop escalates to ERROR once this reaches [SandboxConfig.maxAutoRestartAttempts].
+     */
+    private var postReadyAutoRestarts = 0
+
     override suspend fun initialize() {
         if (_state.value != SandboxState.UNINITIALIZED) return
         _state.value = SandboxState.INITIALIZING
@@ -51,7 +59,10 @@ class DefaultSandboxManager(
         _state.value = SandboxState.STOPPED
     }
 
-    override suspend fun start() = lifecycleMutex.withLock { startLocked() }
+    override suspend fun start() = lifecycleMutex.withLock {
+        postReadyAutoRestarts = 0
+        startLocked()
+    }
 
     private suspend fun startLocked() {
         if (_state.value == SandboxState.RUNNING || _state.value == SandboxState.READY) return
@@ -105,6 +116,12 @@ class DefaultSandboxManager(
      * state corruption.
      */
     override suspend fun restart() = lifecycleMutex.withLock {
+        postReadyAutoRestarts = 0
+        restartLocked()
+    }
+
+    /** stop→start sequence; callers must hold [lifecycleMutex]. */
+    private suspend fun restartLocked() {
         stopLocked()
         delay(200L)
         startLocked()
@@ -143,13 +160,17 @@ class DefaultSandboxManager(
     }
 
     override suspend fun stopDsh() {
-        if (_state.value !in setOf(SandboxState.RUNNING, SandboxState.READY)) return
+        // RECOVERING must be allowed: recover(DSH_RESTART) sets the recovering
+        // state before calling stopDsh(), and this guard would otherwise swallow
+        // the stop and leave DSH running.
+        if (_state.value !in setOf(SandboxState.RUNNING, SandboxState.READY, SandboxState.RECOVERING)) return
         Log.i(TAG, "stopDsh(): terminating DSH guest process tree only")
         processRunner.stopDsh()
         // State stays RUNNING; sandbox (PRoot) remains alive.
     }
 
-    override suspend fun recover(level: RecoveryLevel): AppResult<Unit> {
+    override suspend fun recover(level: RecoveryLevel): AppResult<Unit> = lifecycleMutex.withLock {
+        postReadyAutoRestarts = 0
         _state.value = SandboxState.RECOVERING
         // startHealthLoop() re-binds the supervisor to the new loop instance.
         val result = when (level) {
@@ -176,7 +197,7 @@ class DefaultSandboxManager(
                     AppResult.Success(Unit)
                 } else {
                     // Fallback: full sandbox restart re-runs start_dsh.sh.
-                    restart()
+                    restartLocked()
                     if (awaitReady(config.dshReadyTimeoutMs)) {
                         _state.value = SandboxState.READY
                         startHealthLoop()
@@ -187,7 +208,7 @@ class DefaultSandboxManager(
                 }
             }
             RecoveryLevel.SANDBOX_RESTART -> {
-                restart()
+                restartLocked()
                 if (awaitReady(config.dshReadyTimeoutMs)) {
                     _state.value = SandboxState.READY
                     startHealthLoop()
@@ -199,10 +220,10 @@ class DefaultSandboxManager(
             RecoveryLevel.RUNTIME_ROLLBACK -> {
                 // Medium-destruction: swap back to the previous Runtime slot
                 // (the sandbox must be stopped first) and start with it.
-                stop()
+                stopLocked()
                 val rollbackResult = when (val rollback = bundleManager.rollback()) {
                     is AppResult.Failure -> rollback
-                    is AppResult.Success -> start()
+                    is AppResult.Success -> startLocked()
                 }
                 if (rollbackResult is AppResult.Failure) {
                     rollbackResult
@@ -219,13 +240,13 @@ class DefaultSandboxManager(
                 // durable backup of the last working runtime. Same slot swap
                 // as RUNTIME_ROLLBACK, but reported as a distinct level so
                 // safe mode / diagnostics can distinguish the escalation step.
-                stop()
+                stopLocked()
                 if (bundleManager.backupSlotDir().let { !it.exists() || it.listFiles()?.isEmpty() == true }) {
                     AppResult.Failure(AppError("RECOVERY_BACKUP_RESTORE_FAILED", "no backup slot available to restore"))
                 } else {
                     val restoreResult = when (val rollback = bundleManager.rollback()) {
                         is AppResult.Failure -> rollback
-                        is AppResult.Success -> start()
+                        is AppResult.Success -> startLocked()
                     }
                     if (restoreResult is AppResult.Failure) {
                         restoreResult
@@ -241,9 +262,9 @@ class DefaultSandboxManager(
             RecoveryLevel.USER_RESET -> {
                 // Heaviest level: wipe the user-data working tree (kept
                 // separate from the Runtime slots) so DSH boots to defaults.
-                stop()
+                stopLocked()
                 resetUserData()
-                start()
+                startLocked()
                 if (awaitReady(config.dshReadyTimeoutMs)) {
                     _state.value = SandboxState.READY
                     startHealthLoop()
@@ -256,7 +277,7 @@ class DefaultSandboxManager(
         if (result is AppResult.Failure) {
             _state.value = SandboxState.ERROR
         }
-        return result
+        return@withLock result
     }
 
     override suspend fun enterSafeMode() {
@@ -417,8 +438,25 @@ class DefaultSandboxManager(
                     wasReady = true
                 } else if (wasReady) {
                     // Once DSH has been ready, a later failure uses the bounded
-                    // auto-restart policy.
-                    restart()
+                    // auto-restart policy. The supervisor may have already
+                    // escalated to ERROR if consecutive failures hit the cap;
+                    // additionally, the crash-loop budget (postReadyAutoRestarts)
+                    // guards against flapping across restarts.
+                    if (health.sandboxState == SandboxState.ERROR
+                        || postReadyAutoRestarts >= config.maxAutoRestartAttempts
+                    ) {
+                        Log.e(TAG, "post-ready health failures exhausted (${postReadyAutoRestarts}/${config.maxAutoRestartAttempts}), entering ERROR")
+                        _state.value = SandboxState.ERROR
+                        return@launch
+                    }
+                    postReadyAutoRestarts++
+                    Log.w(TAG, "post-ready health failure #${postReadyAutoRestarts} — auto-restarting sandbox")
+                    // Restart on a detached coroutine: stopLocked() cancels
+                    // this health-loop job, which would abort an in-place
+                    // restart at its next suspension point (delay). The
+                    // restarted loop keeps postReadyAutoRestarts so the
+                    // crash-loop budget persists across cycles.
+                    scope.launch { autoRestartLocked() }
                     return@launch
                 } else if (health.sandboxState == SandboxState.ERROR) {
                     // The supervisor reached the failure cap before DSH ever
@@ -433,6 +471,17 @@ class DefaultSandboxManager(
                 }
                 delay(config.healthCheckIntervalMs)
             }
+        }
+    }
+
+    /** Bounded auto-restart run outside the health-loop job (avoids self-cancel). */
+    private suspend fun autoRestartLocked() {
+        lifecycleMutex.withLock {
+            // Skip if the state moved on (recover/stop/restart already in charge).
+            if (_state.value != SandboxState.RUNNING && _state.value != SandboxState.READY) return@withLock
+            stopLocked()
+            delay(200L)
+            startLocked()
         }
     }
 

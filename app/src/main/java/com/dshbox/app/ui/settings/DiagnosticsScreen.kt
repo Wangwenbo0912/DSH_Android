@@ -56,6 +56,8 @@ import com.dshbox.app.BuildConfig
 import com.dshbox.app.R
 import com.dshbox.app.common.Constants
 import com.dshbox.app.util.formatFileSize
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
 
@@ -85,11 +87,21 @@ fun DiagnosticsScreen(
         }
     }
 
-    // Tail of the selected log file.
-    val logContent = remember(selectedName, refreshKey) {
-        val name = selectedName ?: return@remember ""
-        runCatching { File(logsDir, name).readLines().takeLast(400).joinToString("\n") }
-            .getOrDefault("")
+    // Tail of the selected log file. Loading is done off the main thread via
+    // LaunchedEffect + Dispatchers.IO so that reading large files does not
+    // block composition (the original remember { … readLines() … } ran on
+    // the main thread, causing jank / ANR risk).
+    var logContent by remember { mutableStateOf("") }
+    LaunchedEffect(selectedName, refreshKey) {
+        val name = selectedName
+        if (name == null) {
+            logContent = ""
+            return@LaunchedEffect
+        }
+        logContent = withContext(Dispatchers.IO) {
+            runCatching { File(logsDir, name).readLines().takeLast(400).joinToString("\n") }
+                .getOrDefault("")
+        }
     }
 
     val exportLauncher = rememberLauncherForActivityResult(
