@@ -35,6 +35,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -56,6 +60,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.dshbox.app.DshApp
 import com.dshbox.app.bridge.model.FileEntry
+import com.dshbox.app.service.SandboxService
 import kotlinx.coroutines.launch
 
 /**
@@ -74,9 +79,11 @@ fun WorkspacePickerScreen(
     modifier: Modifier = Modifier,
 ) {
     val app = LocalContext.current.applicationContext as DshApp
+    val context = LocalContext.current
     val bridgeRouter = app.container.bridgeRouter
     val workspaceManager = app.container.workspaceManager
     val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     // The guest workspace root: everything under /root/projects is user work.
     val rootPath = "/root/projects"
@@ -104,6 +111,24 @@ fun WorkspacePickerScreen(
     }
 
     LaunchedEffect(currentPath) { refresh() }
+
+    // After a selection the picker stays open and shows a prompt that the
+    // change takes effect on the next DSH restart, with an "立即重启" action
+    // that restarts the sandbox via SandboxService and then closes the picker.
+    var selectedWorkspace by remember { mutableStateOf<String?>(null) }
+    var selectionCount by remember { mutableStateOf(0) }
+    LaunchedEffect(selectionCount) {
+        val path = selectedWorkspace ?: return@LaunchedEffect
+        val result = snackbarHostState.showSnackbar(
+            message = "已选择工作区「$path」，重启 DSH 后生效",
+            actionLabel = "立即重启",
+            duration = SnackbarDuration.Long,
+        )
+        if (result == SnackbarResult.ActionPerformed) {
+            SandboxService.restart(context)
+            onClose()
+        }
+    }
 
     val canGoUp = currentPath != rootPath
     fun goUp() {
@@ -136,11 +161,12 @@ fun WorkspacePickerScreen(
         hScroll.scrollTo(hScroll.maxValue.coerceAtLeast(0))
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
-    ) {
+    Box(modifier = modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background),
+        ) {
         // ── Top bar ──────────────────────────────────────────────────────────
         Row(
             modifier = Modifier
@@ -341,7 +367,8 @@ fun WorkspacePickerScreen(
                         // Persist the selection, sync the bridge workspace so
                         // sandbox commands execute from this folder, and write the
                         // record into the DSH storage registry (picked up on the
-                        // next DSH restart).
+                        // next DSH restart). The picker stays open and offers an
+                        // immediate restart via the snackbar instead of closing.
                         workspaceManager.setWorkspace(currentPath)
                         scope.launch {
                             bridgeRouter.api.setCurrentWorkspace(currentPath)
@@ -350,7 +377,8 @@ fun WorkspacePickerScreen(
                                 userDataDir = app.container.sandboxConfig.userDataDir,
                             )
                         }
-                        onClose()
+                        selectedWorkspace = currentPath
+                        selectionCount++
                     },
                     modifier = Modifier
                         .weight(1.3f)
@@ -360,6 +388,12 @@ fun WorkspacePickerScreen(
                 }
             }
         }
+        }
+
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
     }
 
     if (showNewFolderDialog) {
