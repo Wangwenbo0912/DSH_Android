@@ -67,4 +67,7 @@ class BridgeRouter(
     }
 
     val api: BridgeApi = delegate
+
+    /** Public accessor for the capability token, needed by WebView JS bridge injection. */
+    val token: String get() = expectedDshToken
 }

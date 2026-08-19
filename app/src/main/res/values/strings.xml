@@ -5,6 +5,7 @@
     <string name="tab_home">首页</string>
     <string name="tab_files">文件</string>
     <string name="tab_sandbox">沙盒</string>
+    <string name="tab_web">DSH</string>
     <string name="tab_settings">设置</string>
 
     <!-- Home / Launcher -->
@@ -222,4 +223,9 @@
     <!-- Launch screen -->
     <string name="launch_extracting">正在解包运行环境…</string>
     <string name="launch_extracting_hint">首次使用约需 1~3 分钟，请耐心等待</string>
+
+    <!-- WebView -->
+    <string name="web_back">后退</string>
+    <string name="web_forward">前进</string>
+    <string name="web_refresh">刷新</string>
 </resources>

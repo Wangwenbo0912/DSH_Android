@@ -3,8 +3,6 @@ package com.dshbox.app.ui.home
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -66,6 +64,7 @@ fun HomeScreen(
     runtimeInstalled: Boolean,
     bundledRuntimeAvailable: Boolean,
     onNavigateToSettings: () -> Unit,
+    onOpenWebUI: () -> Unit,
 ) {
     val context = LocalContext.current
     var showStopDialog by remember { mutableStateOf(false) }
@@ -138,10 +137,7 @@ fun HomeScreen(
         Spacer(modifier = Modifier.height(8.dp))
         Button(
             shape = MaterialTheme.shapes.medium,
-            onClick = {
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(Constants.DSH_BASE_URL))
-                context.startActivity(intent)
-            },
+            onClick = onOpenWebUI,
             enabled = sandboxReady,
             modifier = Modifier
                 .fillMaxWidth()

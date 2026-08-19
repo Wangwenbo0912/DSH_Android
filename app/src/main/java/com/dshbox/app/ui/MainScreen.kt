@@ -62,6 +62,7 @@ import com.dshbox.app.ui.launch.LaunchScreen
 import com.dshbox.app.ui.sandbox.SandboxScreen
 import com.dshbox.app.ui.settings.SettingsScreen
 import com.dshbox.app.ui.theme.AppIcons
+import com.dshbox.app.ui.web.WebViewScreen
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 
@@ -119,6 +120,7 @@ fun MainScreen() {
         TabSpec(R.string.tab_files, AppIcons.Files),
         TabSpec(R.string.tab_sandbox, AppIcons.Sandbox),
         TabSpec(R.string.tab_settings, AppIcons.Settings),
+        TabSpec(R.string.tab_web, AppIcons.Web),
     )
 
     LaunchedEffect(sandboxManager) {
@@ -195,6 +197,7 @@ fun MainScreen() {
                     runtimeInstalled = runtimeInstalled,
                     bundledRuntimeAvailable = bundledRuntimeAvailable,
                     onNavigateToSettings = { selectedTab = 3 },
+                    onOpenWebUI = { selectedTab = 4 },
                 )
             }
         }
@@ -217,7 +220,17 @@ private fun TabContent(
     runtimeInstalled: Boolean,
     bundledRuntimeAvailable: Boolean,
     onNavigateToSettings: () -> Unit,
+    onOpenWebUI: () -> Unit,
 ) {
+    // Lazy creation: only create the WebView when the user first switches to
+    // the Web tab. After that, it stays composed (keep alive) so the DSH SPA
+    // session is preserved across tab switches. This avoids creating a WebView
+    // (and loading an error page) at app startup before the sandbox is READY.
+    var webTabCreated by remember { mutableStateOf(false) }
+    LaunchedEffect(selectedTab) {
+        if (selectedTab == 4) webTabCreated = true
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         // The selected tab fades in with a subtle spring; every tab stays
         // composed (so the terminal keeps running), hidden tabs only lose
@@ -230,6 +243,7 @@ private fun TabContent(
                 runtimeInstalled = runtimeInstalled,
                 bundledRuntimeAvailable = bundledRuntimeAvailable,
                 onNavigateToSettings = onNavigateToSettings,
+                onOpenWebUI = onOpenWebUI,
             )
         }
         AnimatedTab(visible = selectedTab == 1, zIndex = if (selectedTab == 1) 1f else 0f) {
@@ -249,6 +263,16 @@ private fun TabContent(
             SettingsScreen(
                 sandboxReady = sandboxReady,
             )
+        }
+        // The Web tab is only composed after the first visit; hidden tabs keep
+        // running, hit-testing and accessibility stay on the visible tab.
+        if (webTabCreated) {
+            AnimatedTab(visible = selectedTab == 4, zIndex = if (selectedTab == 4) 1f else 0f) {
+                val app = LocalContext.current.applicationContext as DshApp
+                WebViewScreen(
+                    bridgeRouter = app.container.bridgeRouter,
+                )
+            }
         }
     }
 }
