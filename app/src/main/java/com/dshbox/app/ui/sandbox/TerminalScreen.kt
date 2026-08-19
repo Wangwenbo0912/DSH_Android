@@ -64,6 +64,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+private enum class ShellState { STARTING, READY, FAILED }
+
 /**
  * Sandbox terminal. One proot bash process per session (survives tab switches
  * because [MainScreen] keeps every tab composed). The output area supports
@@ -96,6 +98,8 @@ fun TerminalScreen(
     val history = remember { mutableStateListOf<String>() }
     var historyIndex by remember { mutableIntStateOf(-1) }
     val shellProcess = remember { mutableStateOf<Process?>(null) }
+    var shellState by remember { mutableStateOf(ShellState.STARTING) }
+    var shellAttempt by remember { mutableIntStateOf(0) }
 
     // Only the active tab owns the back key, so a hidden terminal session can
     // neither swallow other tabs' back presses nor be destroyed by them.
@@ -114,10 +118,15 @@ fun TerminalScreen(
         scrollState.scrollTo(scrollState.maxValue)
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(shellAttempt) {
+        // Destroy any previous attempt's process before retrying.
+        shellProcess.value?.destroy()
+        shellProcess.value = null
+        shellState = ShellState.STARTING
         try {
             val process = createSandboxShell(context)
             shellProcess.value = process
+            shellState = ShellState.READY
             // Launch reader as a child of the LaunchedEffect scope so it is
             // cancelled automatically when this composable leaves composition.
             launch(Dispatchers.IO) {
@@ -133,6 +142,7 @@ fun TerminalScreen(
                 }
             }
         } catch (t: Throwable) {
+            shellState = ShellState.FAILED
             appendOutput("\n[启动终端失败: ${t.message ?: t.javaClass.simpleName}]\n")
         }
     }
@@ -283,6 +293,38 @@ fun TerminalScreen(
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
+                }
+                // Shell status overlay: connecting hint / failure + retry.
+                when (shellState) {
+                    ShellState.STARTING -> Row(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.terminal_starting),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0x99E0E0E0),
+                        )
+                    }
+                    ShellState.FAILED -> Row(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        OutlinedButton(
+                            shape = MaterialTheme.shapes.medium,
+                            onClick = { shellAttempt++ },
+                            modifier = Modifier.height(36.dp),
+                        ) {
+                            Text(stringResource(R.string.terminal_retry))
+                        }
+                    }
+                    ShellState.READY -> Unit
                 }
             }
         }

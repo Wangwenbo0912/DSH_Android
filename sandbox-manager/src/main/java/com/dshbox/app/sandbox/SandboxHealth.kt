@@ -6,6 +6,8 @@ data class SandboxHealth(
     val portOpen: Boolean,
     val webUiReady: Boolean,
     val lastError: String? = null,
+    val dshVersion: String? = null,
+    val pluginApiVersion: String? = null,
 )
 
 data class DshRuntimeStatus(

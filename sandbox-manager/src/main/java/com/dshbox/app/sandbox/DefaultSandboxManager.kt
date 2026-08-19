@@ -2,7 +2,6 @@ package com.dshbox.app.sandbox
 
 import com.dshbox.app.common.AppError
 import com.dshbox.app.common.AppResult
-import com.dshbox.app.common.Constants
 import com.dshbox.app.common.LogRedactor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -29,6 +28,7 @@ class DefaultSandboxManager(
     private val healthChecker: SandboxHealthChecker = HttpHealthChecker(config.dshHost, config.dshPort),
     private val processRunner: SandboxProcessRunner = SandboxProcessRunner(config),
     private val bundleManager: BundleManager = BundleManager(config),
+    private val supervisor: SandboxSupervisor = SandboxSupervisor(config),
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
 ) : SandboxManager {
 
@@ -37,7 +37,6 @@ class DefaultSandboxManager(
 
     private val lifecycleMutex = Mutex()
     private var healthLoopJob: Job? = null
-    private var restartAttempts = 0
     private var runningProcess: SandboxProcessRunner.RunningProcess? = null
 
     override suspend fun initialize() {
@@ -79,7 +78,6 @@ class DefaultSandboxManager(
             return
         }
         _state.value = SandboxState.RUNNING
-        restartAttempts = 0
         startHealthLoop()
     }
 
@@ -128,12 +126,15 @@ class DefaultSandboxManager(
         // Poll health with timeout; DSH starts asynchronously inside the sandbox.
         if (awaitReady(config.dshReadyTimeoutMs)) {
             _state.value = SandboxState.READY
+            // The health check now parses the WebUI index body and carries the
+            // installed DSH build version when available.
+            val health = healthChecker.check()
             return AppResult.Success(
                 DshRuntimeStatus(
-                    dshVersion = null,
-                    pluginApiVersion = null,
+                    dshVersion = health.dshVersion,
+                    pluginApiVersion = health.pluginApiVersion,
                     baseUrl = "http://${config.dshHost}:${config.dshPort}",
-                    ready = true,
+                    ready = health.webUiReady,
                 ),
             )
         } else {
@@ -150,7 +151,20 @@ class DefaultSandboxManager(
 
     override suspend fun recover(level: RecoveryLevel): AppResult<Unit> {
         _state.value = SandboxState.RECOVERING
-        return when (level) {
+        // startHealthLoop() re-binds the supervisor to the new loop instance.
+        val result = when (level) {
+            RecoveryLevel.WEBVIEW_RELOAD -> {
+                // Lightest level: the WebView reload is a UI-side action; a
+                // sandbox manager can only re-probe health. If DSH answers,
+                // the reload was sufficient, otherwise the caller must
+                // escalate to DSH_RESTART.
+                if (awaitReady(10_000L)) {
+                    _state.value = SandboxState.READY
+                    AppResult.Success(Unit)
+                } else {
+                    AppResult.Failure(AppError("RECOVERY_WEBVIEW_RELOAD_FAILED", "DSH did not answer after WebView reload"))
+                }
+            }
             RecoveryLevel.DSH_RESTART -> {
                 // Light path: stop DSH only. If the sandbox is still alive and
                 // DSH does not auto-restart, fall back to a full sandbox restart.
@@ -182,12 +196,67 @@ class DefaultSandboxManager(
                     AppResult.Failure(AppError("RECOVERY_SANDBOX_RESTART_FAILED", "Sandbox did not recover in time"))
                 }
             }
-            else -> AppResult.Failure(AppError("RECOVERY_UNSUPPORTED", "Recovery level not implemented yet"))
-        }.also { result ->
-            if (result is AppResult.Failure) {
-                _state.value = SandboxState.ERROR
+            RecoveryLevel.RUNTIME_ROLLBACK -> {
+                // Medium-destruction: swap back to the previous Runtime slot
+                // (the sandbox must be stopped first) and start with it.
+                stop()
+                val rollbackResult = when (val rollback = bundleManager.rollback()) {
+                    is AppResult.Failure -> rollback
+                    is AppResult.Success -> start()
+                }
+                if (rollbackResult is AppResult.Failure) {
+                    rollbackResult
+                } else if (awaitReady(config.dshReadyTimeoutMs)) {
+                    _state.value = SandboxState.READY
+                    startHealthLoop()
+                    AppResult.Success(Unit)
+                } else {
+                    AppResult.Failure(AppError("RECOVERY_RUNTIME_ROLLBACK_FAILED", "Runtime rollback did not recover DSH in time"))
+                }
+            }
+            RecoveryLevel.BACKUP_RESTORE -> {
+                // Last-known-good restore: the previous Runtime slot IS the
+                // durable backup of the last working runtime. Same slot swap
+                // as RUNTIME_ROLLBACK, but reported as a distinct level so
+                // safe mode / diagnostics can distinguish the escalation step.
+                stop()
+                if (bundleManager.backupSlotDir().let { !it.exists() || it.listFiles()?.isEmpty() == true }) {
+                    AppResult.Failure(AppError("RECOVERY_BACKUP_RESTORE_FAILED", "no backup slot available to restore"))
+                } else {
+                    val restoreResult = when (val rollback = bundleManager.rollback()) {
+                        is AppResult.Failure -> rollback
+                        is AppResult.Success -> start()
+                    }
+                    if (restoreResult is AppResult.Failure) {
+                        restoreResult
+                    } else if (awaitReady(config.dshReadyTimeoutMs)) {
+                        _state.value = SandboxState.READY
+                        startHealthLoop()
+                        AppResult.Success(Unit)
+                    } else {
+                        AppResult.Failure(AppError("RECOVERY_BACKUP_RESTORE_FAILED", "backup restore did not recover DSH in time"))
+                    }
+                }
+            }
+            RecoveryLevel.USER_RESET -> {
+                // Heaviest level: wipe the user-data working tree (kept
+                // separate from the Runtime slots) so DSH boots to defaults.
+                stop()
+                resetUserData()
+                start()
+                if (awaitReady(config.dshReadyTimeoutMs)) {
+                    _state.value = SandboxState.READY
+                    startHealthLoop()
+                    AppResult.Success(Unit)
+                } else {
+                    AppResult.Failure(AppError("RECOVERY_USER_RESET_FAILED", "user reset did not recover DSH in time"))
+                }
             }
         }
+        if (result is AppResult.Failure) {
+            _state.value = SandboxState.ERROR
+        }
+        return result
     }
 
     override suspend fun enterSafeMode() {
@@ -260,6 +329,23 @@ class DefaultSandboxManager(
         ).forEach { it.mkdirs() }
     }
 
+    /**
+     * Wipes the user-data working tree (bound into the guest as
+     * /root/projects) so DSH boots to defaults. The directory itself is kept;
+     * only its contents are deleted. Best-effort: a failure leaves the old
+     * data in place and is reported through the recovery error path.
+     */
+    private fun resetUserData() {
+        val userData = config.userDataDir
+        if (!userData.isDirectory) return
+        try {
+            userData.listFiles()?.forEach { it.deleteRecursively() }
+            Log.i(TAG, "resetUserData: wiped ${userData.absolutePath}")
+        } catch (t: Throwable) {
+            Log.w(TAG, "resetUserData: partial wipe: ${t.message}")
+        }
+    }
+
     private fun runtimeCurrentDir(): File = File(config.runtimeDir, "runtime-current")
 
     private fun prootBinary(): File {
@@ -317,24 +403,27 @@ class DefaultSandboxManager(
 
     private fun startHealthLoop() {
         healthLoopJob?.cancel()
+        supervisor.reset()
         healthLoopJob = scope.launch {
             val startedAt = System.currentTimeMillis()
             var wasReady = false
             while (_state.value == SandboxState.RUNNING || _state.value == SandboxState.READY) {
-                val health = healthChecker.check()
+                // The supervisor applies the bounded-retry policy: ready samples
+                // reset the failure counter, and repeated failures escalate the
+                // sample to ERROR once the configured cap is reached.
+                val health = supervisor.supervise(healthChecker.check())
                 if (health.webUiReady) {
                     _state.value = SandboxState.READY
-                    restartAttempts = 0
                     wasReady = true
                 } else if (wasReady) {
                     // Once DSH has been ready, a later failure uses the bounded
                     // auto-restart policy.
-                    restartAttempts++
-                    if (restartAttempts >= Constants.MAX_AUTO_RESTART_ATTEMPTS) {
-                        _state.value = SandboxState.ERROR
-                        return@launch
-                    }
                     restart()
+                    return@launch
+                } else if (health.sandboxState == SandboxState.ERROR) {
+                    // The supervisor reached the failure cap before DSH ever
+                    // became ready: keep escalating state instead of looping.
+                    _state.value = SandboxState.ERROR
                     return@launch
                 } else if (System.currentTimeMillis() - startedAt > config.dshReadyTimeoutMs) {
                     // Initial startup gets the full configured timeout; do not

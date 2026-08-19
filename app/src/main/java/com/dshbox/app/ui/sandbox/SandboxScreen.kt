@@ -3,20 +3,23 @@ package com.dshbox.app.ui.sandbox
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -27,9 +30,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.dshbox.app.R
 import com.dshbox.app.ui.theme.AppIconsTerminal
@@ -132,67 +138,143 @@ fun SandboxScreen(
             }
         }
     } else {
-        Box(
-            modifier = modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center,
+        Column(
+            modifier = modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
         ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.padding(24.dp),
+            Icon(
+                imageVector = AppIconsTerminal,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(40.dp),
+            )
+            Spacer(Modifier.height(12.dp))
+            Text(
+                text = stringResource(R.string.sandbox_placeholder_title),
+                style = MaterialTheme.typography.titleLarge,
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = stringResource(R.string.sandbox_placeholder_desc),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(0.85f),
+            )
+            Spacer(Modifier.height(16.dp))
+            // Status row
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Icon(
-                    imageVector = AppIconsTerminal,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .background(
+                            when {
+                                sandboxStopped -> MaterialTheme.colorScheme.outline
+                                sandboxReady -> MaterialTheme.colorScheme.primary
+                                else -> MaterialTheme.colorScheme.outline
+                            },
+                            CircleShape,
+                        ),
                 )
                 Text(
-                    text = stringResource(R.string.sandbox_placeholder_title),
-                    style = MaterialTheme.typography.titleLarge,
+                    text = stringResource(
+                        when {
+                            sandboxStopped -> R.string.sandbox_stopped
+                            sandboxReady -> R.string.sandbox_ready
+                            else -> R.string.sandbox_starting
+                        },
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .background(
-                                when {
-                                    sandboxStopped -> MaterialTheme.colorScheme.outline
-                                    sandboxReady -> MaterialTheme.colorScheme.primary
-                                    else -> MaterialTheme.colorScheme.outline
-                                },
-                                CircleShape,
-                            ),
-                    )
-                    Text(
-                        text = stringResource(
-                            when {
-                                sandboxStopped -> R.string.sandbox_stopped
-                                sandboxReady -> R.string.sandbox_ready
-                                else -> R.string.sandbox_starting
-                            },
-                        ),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    TextButton(onClick = onNavigateToSettings) {
-                        Text(stringResource(R.string.sandbox_diagnostics))
-                    }
-                }
-                Button(
-                    shape = MaterialTheme.shapes.medium,
-                    onClick = {
-                        sessions = listOf(0)
-                        activeSession = 0
-                        clearSignal = 0
-                        terminalOpened = true
-                    },
-                ) {
-                    Text(stringResource(R.string.sandbox_open_terminal))
+                TextButton(onClick = onNavigateToSettings) {
+                    Text(stringResource(R.string.sandbox_diagnostics))
                 }
             }
+            Spacer(Modifier.height(20.dp))
+            // Guide card
+            Surface(
+                shape = MaterialTheme.shapes.large,
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(
+                    modifier = Modifier.padding(vertical = 16.dp, horizontal = 20.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    GuideLine(step = "1", text = stringResource(R.string.sandbox_guide_step1))
+                    GuideLine(step = "2", text = stringResource(R.string.sandbox_guide_step2))
+                    GuideLine(step = "3", text = stringResource(R.string.sandbox_guide_step3))
+                    HorizontalDivider(
+                        thickness = 0.5.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant,
+                    )
+                    Text(
+                        text = stringResource(R.string.sandbox_guide_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                    )
+                }
+            }
+            Spacer(Modifier.height(24.dp))
+            Button(
+                shape = MaterialTheme.shapes.medium,
+                onClick = {
+                    sessions = listOf(0)
+                    activeSession = 0
+                    clearSignal = 0
+                    terminalOpened = true
+                },
+                enabled = sandboxReady && !sandboxStopped,
+                modifier = Modifier
+                    .fillMaxWidth(0.85f)
+                    .height(52.dp),
+            ) {
+                Text(stringResource(R.string.sandbox_open_terminal))
+            }
+            if (!sandboxReady) {
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    text = stringResource(R.string.sandbox_open_disabled_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                )
+            }
         }
+    }
+}
+
+@Composable
+private fun GuideLine(step: String, text: String, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(20.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.primary),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = step,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onPrimary,
+            )
+        }
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
     }
 }

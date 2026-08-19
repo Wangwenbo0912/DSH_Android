@@ -59,6 +59,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -139,6 +140,7 @@ fun FilesScreen(modifier: Modifier = Modifier, isActiveTab: Boolean = true) {
     var rawEntryCount by remember { mutableIntStateOf(0) }
     var rawHasFiles by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
+    var listFailed by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var pendingDeleteTarget by remember { mutableStateOf<File?>(null) }
     var showImportConfirm by remember { mutableStateOf(false) }
@@ -152,24 +154,34 @@ fun FilesScreen(modifier: Modifier = Modifier, isActiveTab: Boolean = true) {
             // Directory listing + sort can be slow on huge rootfs dirs; keep it
             // off the main thread (state updates hop back via the snapshot).
             val all = withContext(Dispatchers.IO) {
-                currentDir.listFiles()?.toList() ?: emptyList()
+                currentDir.listFiles()?.toList()
             }
-            rawEntryCount = all.size
-            rawHasFiles = all.any { it.isFile }
-            entries = all
-                .filter { file ->
-                    // DSH's internal data dir stays hidden inside the workspace view.
-                    if (rootMode == 1 && file.name == ".dsh") return@filter false
-                    query.isEmpty() || file.name.contains(query, ignoreCase = true)
-                }
-                .sortedWith(
-                    when (sortMode) {
-                        SortMode.NAME -> compareBy<File> { !it.isDirectory }.thenBy { it.name.lowercase() }
-                        SortMode.TIME -> compareBy<File> { !it.isDirectory }.thenByDescending { it.lastModified() }
-                        SortMode.SIZE -> compareBy<File> { !it.isDirectory }
-                            .thenByDescending { if (it.isFile) it.length() else 0L }
-                    },
-                )
+            if (all == null) {
+                // Directory unavailable (not extracted yet / moved / deleted):
+                // show the error state instead of fake-empty.
+                listFailed = true
+                rawEntryCount = 0
+                rawHasFiles = false
+                entries = emptyList()
+            } else {
+                listFailed = false
+                rawEntryCount = all.size
+                rawHasFiles = all.any { it.isFile }
+                entries = all
+                    .filter { file ->
+                        // DSH's internal data dir stays hidden inside the workspace view.
+                        if (rootMode == 1 && file.name == ".dsh") return@filter false
+                        query.isEmpty() || file.name.contains(query, ignoreCase = true)
+                    }
+                    .sortedWith(
+                        when (sortMode) {
+                            SortMode.NAME -> compareBy<File> { !it.isDirectory }.thenBy { it.name.lowercase() }
+                            SortMode.TIME -> compareBy<File> { !it.isDirectory }.thenByDescending { it.lastModified() }
+                            SortMode.SIZE -> compareBy<File> { !it.isDirectory }
+                                .thenByDescending { if (it.isFile) it.length() else 0L }
+                        },
+                    )
+            }
             isLoading = false
         }
     }
@@ -437,7 +449,12 @@ fun FilesScreen(modifier: Modifier = Modifier, isActiveTab: Boolean = true) {
 
         // ---------- 4. File list / grid / empty ----------
         Box(modifier = Modifier.fillMaxSize()) {
-        if (entries.isEmpty() && searchQuery.isNotBlank() && !isLoading) {
+        if (listFailed && !isLoading) {
+            FilesErrorState(
+                onRetry = ::refreshEntries,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else if (entries.isEmpty() && searchQuery.isNotBlank() && !isLoading) {
             NoMatchState(modifier = Modifier.fillMaxSize())
         } else if (entries.isEmpty() && !isLoading) {
             EmptyState(
@@ -1319,6 +1336,55 @@ private fun EmptyState(
                 text = stringResource(R.string.files_import),
                 fontSize = 13.sp,
                 color = MaterialTheme.colorScheme.primary,
+            )
+        }
+    }
+}
+
+// ---------- File list error state ----------
+
+@Composable
+private fun FilesErrorState(
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.FolderOpen,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.outlineVariant,
+            modifier = Modifier.size(64.dp),
+        )
+        Spacer(Modifier.height(12.dp))
+        Text(
+            text = stringResource(R.string.files_error_title),
+            fontSize = 14.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = stringResource(R.string.files_error_hint),
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+        )
+        Spacer(Modifier.height(16.dp))
+        OutlinedButton(
+            shape = RoundedCornerShape(8.dp),
+            onClick = onRetry,
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Refresh,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = stringResource(R.string.home_retry),
+                fontSize = 13.sp,
             )
         }
     }

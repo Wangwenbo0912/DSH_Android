@@ -72,6 +72,7 @@ fun SettingsScreen(
     var showDiagnostics by remember { mutableStateOf(false) }
     var showBatteryDialog by remember { mutableStateOf(false) }
     var showModelConfig by remember { mutableStateOf(false) }
+    var showRepairConfirm by remember { mutableStateOf(false) }
 
     val importUpdateLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -81,6 +82,28 @@ fun SettingsScreen(
                 val result = installUpdateFromUri(context, sandboxManager, uri)
                 val message = when (result) {
                     is AppResult.Success -> context.getString(R.string.settings_update_imported)
+                    is AppResult.Failure -> context.getString(
+                        R.string.settings_update_import_failed,
+                        result.error.message,
+                    )
+                }
+                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    // 修复：先停沙盒，再用 SAF 选择运行环境包重装，装完自动重启。
+    val repairLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val result = installUpdateFromUri(context, sandboxManager, uri)
+                val message = when (result) {
+                    is AppResult.Success -> {
+                        SandboxService.restart(context)
+                        context.getString(R.string.settings_sandbox_repair_done)
+                    }
                     is AppResult.Failure -> context.getString(
                         R.string.settings_update_import_failed,
                         result.error.message,
@@ -177,13 +200,7 @@ fun SettingsScreen(
             )
             SettingsActionRow(
                 title = stringResource(R.string.settings_sandbox_repair),
-                onClick = {
-                    Toast.makeText(
-                        context,
-                        R.string.settings_sandbox_repair_message,
-                        Toast.LENGTH_SHORT,
-                    ).show()
-                },
+                onClick = { showRepairConfirm = true },
             )
         }
 
@@ -271,6 +288,31 @@ fun SettingsScreen(
                 value = BuildConfig.VERSION_NAME,
             )
         }
+    }
+
+    if (showRepairConfirm) {
+        AlertDialog(
+            onDismissRequest = { showRepairConfirm = false },
+            title = { Text(stringResource(R.string.settings_sandbox_repair_confirm_title)) },
+            text = { Text(stringResource(R.string.settings_sandbox_repair_confirm_message)) },
+            confirmButton = {
+                TextButton(
+                    shape = MaterialTheme.shapes.medium,
+                    onClick = {
+                        showRepairConfirm = false
+                        SandboxService.stop(context)
+                        repairLauncher.launch(arrayOf("*/*"))
+                    },
+                ) {
+                    Text(stringResource(R.string.settings_sandbox_repair_confirm_action))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRepairConfirm = false }) {
+                    Text(stringResource(R.string.home_stop_cancel))
+                }
+            },
+        )
     }
 
     if (showBatteryDialog) {

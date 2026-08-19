@@ -36,10 +36,20 @@ class BridgePolicy(
     }
 
     companion object {
+        /**
+         * Capabilities that can leak data, destroy state, or execute code.
+         * Each requires an explicit per-session user authorization in addition
+         * to being granted.
+         * - COMMAND: arbitrary code execution inside the sandbox.
+         * - FILESYSTEM_WRITE: can overwrite/delete project files.
+         * - PROCESS: can kill sandbox processes.
+         * - ANDROID_CLIPBOARD: read can exfiltrate the user's clipboard.
+         */
         val HIGH_RISK = setOf(
             BridgeCapability.COMMAND,
             BridgeCapability.FILESYSTEM_WRITE,
             BridgeCapability.PROCESS,
+            BridgeCapability.ANDROID_CLIPBOARD,
         )
     }
 }

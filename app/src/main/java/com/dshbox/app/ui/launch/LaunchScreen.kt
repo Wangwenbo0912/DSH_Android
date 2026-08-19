@@ -14,8 +14,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -26,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -44,9 +47,16 @@ private val BrandFontFamily = FontFamily(Font(R.font.manrope))
  * small DSH whales orbit around it. The sandbox starts silently in the
  * background; this surface is removed automatically once DSH is ready (or the
  * sandbox reports an error), so there is no skip button.
+ *
+ * When [runtimeInstalled] is false and [bundledRuntimeAvailable] is true, a
+ * first-boot extraction progress hint is shown below the animation.
  */
 @Composable
-fun LaunchScreen(modifier: Modifier = Modifier) {
+fun LaunchScreen(
+    modifier: Modifier = Modifier,
+    runtimeInstalled: Boolean = true,
+    bundledRuntimeAvailable: Boolean = false,
+) {
     // Soft fade-in for the whole surface.
     val fadeIn = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
@@ -104,6 +114,33 @@ fun LaunchScreen(modifier: Modifier = Modifier) {
                             y = (radiusPx * sin(angle)).dp,
                         )
                         .graphicsLayer { rotationZ = -orbitAngle },
+                )
+            }
+        }
+
+        // First-boot extraction progress hint (shown below the animation).
+        if (!runtimeInstalled && bundledRuntimeAvailable) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 96.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+                )
+                Text(
+                    text = stringResource(R.string.launch_extracting),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+                )
+                Text(
+                    text = stringResource(R.string.launch_extracting_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
                 )
             }
         }

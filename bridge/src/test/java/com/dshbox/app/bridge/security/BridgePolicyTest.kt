@@ -26,6 +26,47 @@ class BridgePolicyTest {
     }
 
     @Test
+    fun clipboardIsHighRiskAndRequiresAuthorization() {
+        val policy = BridgePolicy(
+            trustLevel = TrustLevel.TRUSTED_DSH_WEBUI,
+            grantedCapabilities = setOf(BridgeCapability.ANDROID_CLIPBOARD),
+            userAuthorizedHighRisk = false,
+        )
+        assertFalse(policy.evaluate(BridgeCapability.ANDROID_CLIPBOARD).allowed)
+    }
+
+    @Test
+    fun clipboardAllowedWhenAuthorized() {
+        val policy = BridgePolicy(
+            trustLevel = TrustLevel.TRUSTED_DSH_WEBUI,
+            grantedCapabilities = setOf(BridgeCapability.ANDROID_CLIPBOARD),
+            userAuthorizedHighRisk = true,
+        )
+        assertTrue(policy.evaluate(BridgeCapability.ANDROID_CLIPBOARD).allowed)
+    }
+
+    @Test
+    fun ungrantedCapabilityIsDeniedEvenWhenAuthorized() {
+        val policy = BridgePolicy(
+            trustLevel = TrustLevel.TRUSTED_DSH_WEBUI,
+            grantedCapabilities = setOf(BridgeCapability.FILESYSTEM_READ),
+            userAuthorizedHighRisk = true,
+        )
+        // COMMAND is high risk and NOT granted: must be denied as ungranted.
+        assertFalse(policy.evaluate(BridgeCapability.COMMAND).allowed)
+    }
+
+    @Test
+    fun localWebDeniesHighRisk() {
+        val policy = BridgePolicy(
+            trustLevel = TrustLevel.LOCAL_WEB,
+            grantedCapabilities = setOf(BridgeCapability.ANDROID_CLIPBOARD),
+            userAuthorizedHighRisk = true,
+        )
+        assertFalse(policy.evaluate(BridgeCapability.ANDROID_CLIPBOARD).allowed)
+    }
+
+    @Test
     fun trustedAndAuthorizedAllows() {
         val policy = BridgePolicy(
             trustLevel = TrustLevel.TRUSTED_DSH_WEBUI,

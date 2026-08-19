@@ -1,9 +1,17 @@
 package com.dshbox.app.bridge
 
+import android.Manifest
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
 import android.util.Log
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import com.dshbox.app.bridge.api.BridgeApi
 import com.dshbox.app.bridge.model.CommandRequest
 import com.dshbox.app.bridge.model.CommandResult
@@ -44,7 +52,12 @@ class SandboxBridgeApi(
         private const val WORKSPACE_PREFIX = "/root/projects"
         private const val DEFAULT_WORKSPACE = WORKSPACE_PREFIX
         private const val EXEC_TIMEOUT_MS = 30_000L
+        private const val CHANNEL_ID = "dsh_bridge"
+        private const val CHANNEL_NAME = "DSH Bridge"
+        private const val NOTIFICATION_ID_BASE = 9001
     }
+
+    private var notificationIdSeq = NOTIFICATION_ID_BASE
 
     // ── Workspace ─────────────────────────────────────────────────────────────
 
@@ -209,11 +222,30 @@ class SandboxBridgeApi(
         Unit
     }
 
-    override suspend fun listProcesses(): List<Long> = emptyList()
+    override suspend fun listProcesses(): List<Long> = withContext(Dispatchers.IO) {
+        val myPid = android.os.Process.myPid()
+        val table = readProcTable() ?: return@withContext emptyList()
+        // BFS from myPid: collect all descendant PIDs = sandbox process tree.
+        val result = mutableListOf<Long>()
+        val queue = ArrayDeque<Int>()
+        queue.addAll(childrenOf(table, myPid))
+        while (queue.isNotEmpty()) {
+            val pid = queue.removeFirst()
+            result.add(pid.toLong())
+            queue.addAll(childrenOf(table, pid))
+        }
+        result.sorted()
+    }
 
     override suspend fun killProcess(processId: Long) = withContext(Dispatchers.IO) {
         if (processId <= 0L) {
             Log.w(TAG, "killProcess($processId): invalid PID, refusing to execute kill")
+            return@withContext
+        }
+        // Safety: only allow killing PIDs inside the sandbox process tree.
+        val myPid = android.os.Process.myPid()
+        if (!isDescendantOf(processId.toInt(), myPid)) {
+            Log.w(TAG, "killProcess($processId): not a sandbox process, refusing")
             return@withContext
         }
         try {
@@ -226,10 +258,23 @@ class SandboxBridgeApi(
 
     // ── Android platform ──────────────────────────────────────────────────────
 
-    override suspend fun showNotification(title: String, body: String) {
-        Log.i(TAG, "showNotification: $title — $body")
-        // TODO(phase-2): call NotificationManager directly when the bridge gains
-        // a reference to the app's notification channel.
+    override suspend fun showNotification(title: String, body: String) = withContext(Dispatchers.IO) {
+        createNotificationChannel()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            Log.w(TAG, "showNotification: POST_NOTIFICATIONS not granted, skipping")
+            return@withContext
+        }
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+            .build()
+        NotificationManagerCompat.from(context).notify(notificationIdSeq++, notification)
     }
 
     override suspend fun clipboardRead(): String = withContext(Dispatchers.Main) {
@@ -327,5 +372,62 @@ class SandboxBridgeApi(
                 -1L
             }
         }
+    }
+
+    // ── Notifications ─────────────────────────────────────────────────────────
+
+    /** Creates the "dsh_bridge" notification channel (no-op after the first call). */
+    private fun createNotificationChannel() {
+        // Channel creation is idempotent; guard against re-creation on API < 26 anyway.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+        if (manager.getNotificationChannel(CHANNEL_ID) != null) return
+        val channel = NotificationChannel(
+            CHANNEL_ID,
+            CHANNEL_NAME,
+            NotificationManager.IMPORTANCE_DEFAULT,
+        ).apply {
+            description = "Notifications requested from the DSH WebUI"
+        }
+        manager.createNotificationChannel(channel)
+    }
+
+    // ── Process table helpers ─────────────────────────────────────────────────
+
+    /** Reads /proc into a pid → ppid map. Returns null when /proc is unreadable. */
+    private fun readProcTable(): Map<Int, Int>? {
+        val dir = File("/proc")
+        val entries = dir.listFiles { f -> f.name.all { it.isDigit() } } ?: return null
+        val map = HashMap<Int, Int>()
+        for (entry in entries) {
+            val pid = entry.name.toIntOrNull() ?: continue
+            val stat = readTextOrNull(File(entry, "stat")) ?: continue
+            // Format: pid (comm) state ppid ...
+            val rest = stat.substringAfter(") ").trim()
+            val ppid = rest.split(' ').getOrNull(1)?.toIntOrNull() ?: continue
+            map[pid] = ppid
+        }
+        return map
+    }
+
+    /** Direct children of [parent] from a pid → ppid table. */
+    private fun childrenOf(all: Map<Int, Int>, parent: Int): List<Int> =
+        all.filterValues { it == parent }.keys.sorted()
+
+    private fun readTextOrNull(file: File): String? =
+        try { file.readText() } catch (_: Throwable) { null }
+
+    /** True when [pid] is [rootPid] itself or a descendant of [rootPid]. */
+    private fun isDescendantOf(pid: Int, rootPid: Int): Boolean {
+        val table = readProcTable() ?: return false
+        if (pid == rootPid) return true
+        var cur: Int? = pid
+        var hops = 0
+        while (cur != null && hops < 64) {
+            if (cur == rootPid) return true
+            cur = table[cur]
+            hops++
+        }
+        return false
     }
 }

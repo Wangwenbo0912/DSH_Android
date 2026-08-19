@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -40,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.invisibleToUser
 import androidx.compose.ui.semantics.semantics
@@ -70,6 +72,9 @@ private data class TabSpec(val labelRes: Int, val icon: AppIcons)
 
 /** Minimum time the brand launch animation stays visible on cold start. */
 private const val SPLASH_MIN_MILLIS = 2_000L
+
+/** Upper bound for keeping the splash up during first-boot extraction (8 min). */
+private const val SPLASH_FIRST_BOOT_CAP_MILLIS = 8 * 60_000L
 
 @Composable
 fun MainScreen() {
@@ -141,8 +146,21 @@ fun MainScreen() {
     // Brand splash minimum duration: with the runtime already installed the
     // sandbox reaches READY within seconds, so without a floor the launch
     // animation would be invisible on every cold start.
+    //
+    // On first boot (bundled runtime being extracted) the splash stays up so
+    // the extraction progress hint is visible; a hard cap prevents a deadlock
+    // if extraction hangs or the bundle is missing/corrupt — the user must
+    // always reach the Home screen's import CTA.
+    val firstBootInstall = !runtimeInstalled && bundledRuntimeAvailable
     LaunchedEffect(Unit) {
         delay(SPLASH_MIN_MILLIS)
+        if (firstBootInstall) {
+            val deadline = System.currentTimeMillis() + SPLASH_FIRST_BOOT_CAP_MILLIS
+            while (showLaunch && System.currentTimeMillis() < deadline) {
+                delay(250)
+                if (runtimeInstalled || sandboxError == 1) break
+            }
+        }
         showLaunch = false
     }
 
@@ -182,7 +200,10 @@ fun MainScreen() {
         }
 
         if (showLaunch && sandboxReady == 0) {
-            LaunchScreen()
+            LaunchScreen(
+                runtimeInstalled = runtimeInstalled,
+                bundledRuntimeAvailable = bundledRuntimeAvailable,
+            )
         }
     }
 }
@@ -267,13 +288,23 @@ private fun AnimatedTab(
  * consumes no CPU while idle; it only marks incoming pointer events as consumed
  * so the hidden screen behind the alpha(0f) overlay can never react to taps
  * intended for the visible tab.
+ *
+ * Optimization over the naive consume-everything approach: the Main pass runs
+ * parent-before-child, so by consuming here the hidden tab's own children
+ * (e.g. a hidden terminal input) never see an unconsumed event, while events
+ * the visible tab already handled are skipped instead of being re-consumed.
  */
 private fun Modifier.hiddenTab(): Modifier = this
-    .semantics { invisibleToUser() }
+    .semantics(mergeDescendants = false) { invisibleToUser() }
     .pointerInput(Unit) {
         awaitPointerEventScope {
             while (true) {
-                awaitPointerEvent().changes.forEach { it.consume() }
+                awaitPointerEvent().changes.forEach { change ->
+                    // Consume only leftovers: events the visible (top) tab already
+                    // consumed pass through; anything unclaimed gets swallowed so
+                    // the hidden tab below can never react to it.
+                    if (!change.isConsumed) change.consume()
+                }
             }
         }
     }
@@ -339,6 +370,20 @@ private fun IosTabBar(
                         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                         color = tint,
                         maxLines = 1,
+                    )
+                    // Active indicator: a small primary-colored capsule under the
+                    // selected tab label, spring-animated for a polished feel.
+                    Spacer(Modifier.height(2.dp))
+                    val indicatorWidth by animateDpAsState(
+                        targetValue = if (selected) 18.dp else 0.dp,
+                        animationSpec = spring(dampingRatio = 0.5f, stiffness = 500f),
+                        label = "tab-indicator-width",
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(width = indicatorWidth, height = 3.dp)
+                            .clip(RoundedCornerShape(1.5.dp))
+                            .background(if (selected) MaterialTheme.colorScheme.primary else Color.Transparent),
                     )
                 }
             }
